@@ -1,0 +1,4 @@
+numpy~=2.2.3
+pillow~=11.1.0
+sv_ttk
+opencv-python~=4.11.0.86

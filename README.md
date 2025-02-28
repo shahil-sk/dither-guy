@@ -22,18 +22,13 @@ Is a simple Python script that converts images to dithered images. It supports m
 
 ## How to use
 
-To use the script, you need to have Python installed on your computer. You also need to install the Pillow and numpy
-libraries. You can install the Pillow and numpy libraries using the following command:
+To use the script, you need to have Python installed on your computer. You also need to install the dependencies using the following command: 
 
 ```bash
-pip install Pillow
+pip install -r requirements.txt
 ```
 
-```bash
-pip install numpy
-```
-
-After installing the Pillow library, you can run the script using the following command:
+After installing the dependencies, you can run the script using the following command:
 
 ```bash
 python dither_guy.py
