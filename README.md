@@ -52,8 +52,7 @@ the PyInstaller library using the following command:
 pip install pyinstaller
 ```
 
-
-## BETA
+## BETA Video Dithering
 ![Gif](input/computer_input.gif)
 ![Gif](output/computer.gif)
 
