@@ -6,7 +6,7 @@ dithering effects, similar to old screens.
 Is a simple Python script that converts images to dithered images. It supports multiple dithering algorithms to achieve the effect. The script is written in Python and uses the Pillow library to process images.
 
 
-<img src="output/video_record.gif" width="500">
+<img src="output/video_example.gif" width="500">
 
 ## Input x Output
 
