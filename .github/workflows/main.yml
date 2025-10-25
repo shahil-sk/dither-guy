@@ -49,8 +49,6 @@ jobs:
             --hidden-import=numpy `
             --hidden-import=cv2 `
             --hidden-import=shiboken6 `
-            --collect-all=PySide6 `
-            --collect-all=cv2 `
             --noconsole `
             dither_guy.py
 
@@ -114,8 +112,6 @@ jobs:
             --hidden-import=numpy \
             --hidden-import=cv2 \
             --hidden-import=shiboken6 \
-            --collect-all=PySide6 \
-            --collect-all=cv2 \
             dither_guy.py
 
       - name: Make executable
@@ -163,8 +159,6 @@ jobs:
             --hidden-import=numpy \
             --hidden-import=cv2 \
             --hidden-import=shiboken6 \
-            --collect-all=PySide6 \
-            --collect-all=cv2 \
             dither_guy.py
 
       - name: Upload macOS artifact

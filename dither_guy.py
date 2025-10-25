@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QGroupBox, QMessageBox, QSplitter, QToolBar, QCheckBox
 )
 from PySide6.QtCore import Qt, Signal, QThread, QTimer, QMutex
-from PySide6.QtGui import QPixmap, QImage, QAction
+from PySide6.QtGui import QPixmap, QImage, QAction, QIcon
 
 
 class DitherWorker(QThread):
@@ -477,6 +477,10 @@ class DitherApp(QMainWindow):
         
         self.init_ui()
         self.apply_dark_theme()
+        icon_path = Path("app_png.icon")
+        icon_pixmap = QPixmap(icon_path)
+        icon = QIcon(icon_pixmap)
+        self.setWindowIcon(icon)
     
     def init_ui(self):
         self.setWindowTitle("Dither Guy - Professional Image Dithering")
