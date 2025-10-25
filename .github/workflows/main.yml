@@ -36,8 +36,8 @@ jobs:
             --name="DitherGuy" `
             --onefile `
             --windowed `
-            --icon=icon.ico `
-            --add-data="icon.ico;." `
+            --icon=app_icon.png `
+            --add-data="app_icon.png;." `
             --hidden-import=PySide6.QtCore `
             --hidden-import=PySide6.QtGui `
             --hidden-import=PySide6.QtWidgets `
