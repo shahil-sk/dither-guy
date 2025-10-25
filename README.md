@@ -4,13 +4,13 @@ Dither Guy is inspired by the [Dither Boy](https://studioaaa.com/product/dither-
 
 Is a simple Python script that converts images to dithered images. It supports multiple dithering algorithms to achieve the effect. The script is written in Python and uses the Pillow library to process images.
 
+<img width="600" height="959" alt="image" src="https://github.com/user-attachments/assets/baf820e0-a0aa-4da2-8549-1f76f4531268" />
+
 **Changelogs**
 - added more filters
 - fixed image preview window
 - moved to Qtpyside6 for ui
 - added brightness, contrast etc options.
-
-<img src="output/video_example.gif" width="500">
 
 ## Input x Output
 
