@@ -1,10 +1,14 @@
-# Dither Guy
+# Dither Guy (Updated)
 
-Dither Guy is inspired by the [Dither Boy](https://studioaaa.com/product/dither-boy/) software, used to create graphic
-dithering effects, similar to old screens.
+Dither Guy is inspired by the [Dither Boy](https://studioaaa.com/product/dither-boy/) software, used to create graphic dithering effects, similar to old screens.
 
 Is a simple Python script that converts images to dithered images. It supports multiple dithering algorithms to achieve the effect. The script is written in Python and uses the Pillow library to process images.
 
+**Changelogs**
+- added more filters
+- fixed image preview window
+- moved to Qtpyside6 for ui
+- added brightness, contrast etc options.
 
 <img src="output/video_example.gif" width="500">
 
