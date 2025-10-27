@@ -204,7 +204,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/DitherGuy-Linux/DitherGuy
+            artifacts/DitherGuy-Linux/DitherGuy-linux
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -226,7 +226,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/DitherGuy-macOS/DitherGuy
+            artifacts/DitherGuy-macOS/DitherGuy-macOS.app
           draft: false
           prerelease: false
           generate_release_notes: true
