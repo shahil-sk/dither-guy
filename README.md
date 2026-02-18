@@ -47,4 +47,11 @@ python3 dither_guy.py
 
 ```
 
+## Contributors and Supporters
+Special thanks to project contributors and supporters via Ko-Fi
+Timo Frank (Supporter)
+@shahil-sk (Contributor)
+@momed081 (Contributor)
+
+
 
