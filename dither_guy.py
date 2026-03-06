@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QSlider, QComboBox, QFileDialog, QColorDialog,
     QScrollArea, QGroupBox, QMessageBox, QSplitter, QToolBar, QCheckBox,
-    QTabWidget, QProgressBar,
+    QTabWidget, QProgressBar, QDialog, QSpinBox, QGridLayout,
 )
 from PySide6.QtCore import Qt, Signal, QThread, QTimer, QMutex
 from PySide6.QtGui import QPixmap, QImage, QAction, QIcon, QColor
@@ -73,6 +73,8 @@ METHODS = [
     "Jarvis-Judice-Ninke", "Stucki", "Random",
 ]
 
+_HISTORY_LIMIT = 20
+
 
 # ---------------------------------------------------------------------------
 # Dither engine
@@ -96,13 +98,7 @@ def _adjust(img, brightness, contrast, blur, sharpen):
 
 
 def apply_glow(img, radius, intensity):
-    """Screen-blend a blurred version of the lit pixels back onto the image.
-
-    Works on any background colour because the screen formula only brightens:
-        out = 1 - (1 - base) * (1 - glow * alpha)
-    Dark (black) backgrounds stay black where there is no nearby lit pixel,
-    while the colour spreads outward from each lit pixel as a soft halo.
-    """
+    """Screen-blend a blurred version of the lit pixels back onto the image."""
     if radius <= 0 or intensity <= 0:
         return img
     blurred  = img.filter(ImageFilter.GaussianBlur(radius=radius))
@@ -276,7 +272,6 @@ def apply_dither(img, pixel_size, threshold, replace_color, method,
     data[mask] = replace_color
     img = Image.fromarray(data)
 
-    # glow is applied after colour replacement so it inherits the chosen colour
     if glow_radius > 0 and glow_intensity > 0:
         img = apply_glow(img, glow_radius, glow_intensity)
 
@@ -287,6 +282,82 @@ def _pil_to_pixmap(img):
     raw  = img.tobytes("raw", "RGB")
     qimg = QImage(raw, img.width, img.height, img.width * 3, QImage.Format_RGB888)
     return QPixmap.fromImage(qimg)
+
+
+# ---------------------------------------------------------------------------
+# Crop dialog
+# ---------------------------------------------------------------------------
+
+class CropDialog(QDialog):
+    """Enter pixel amounts to remove from each edge."""
+
+    def __init__(self, img_w, img_h, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Crop Image")
+        self.setMinimumWidth(340)
+        self.img_w = img_w
+        self.img_h = img_h
+        self._build()
+
+    def _build(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        self._info = QLabel()
+        self._info.setAlignment(Qt.AlignCenter)
+        self._info.setStyleSheet("font-size:11px; color:#aaa; padding:4px;")
+        layout.addWidget(self._info)
+
+        form = QWidget()
+        fl   = QGridLayout(form)
+        fl.setSpacing(8)
+
+        self._spins = {}
+        for row, (name, label, max_val) in enumerate([
+            ("left",   "Remove from left",   self.img_w - 1),
+            ("top",    "Remove from top",    self.img_h - 1),
+            ("right",  "Remove from right",  self.img_w - 1),
+            ("bottom", "Remove from bottom", self.img_h - 1),
+        ]):
+            lbl = QLabel(label)
+            sp  = QSpinBox()
+            sp.setMinimum(0)
+            sp.setMaximum(max_val)
+            sp.setValue(0)
+            sp.setMinimumHeight(28)
+            sp.valueChanged.connect(self._update_info)
+            fl.addWidget(lbl, row, 0)
+            fl.addWidget(sp,  row, 1)
+            self._spins[name] = sp
+
+        layout.addWidget(form)
+
+        btns = QHBoxLayout()
+        ok  = QPushButton("Crop")
+        can = QPushButton("Cancel")
+        ok.setMinimumHeight(30)
+        can.setMinimumHeight(30)
+        ok.clicked.connect(self.accept)
+        can.clicked.connect(self.reject)
+        btns.addStretch()
+        btns.addWidget(ok)
+        btns.addWidget(can)
+        layout.addLayout(btns)
+
+        self._update_info()
+
+    def _update_info(self):
+        l = self._spins["left"].value()
+        t = self._spins["top"].value()
+        r = self._spins["right"].value()
+        b = self._spins["bottom"].value()
+        nw = max(1, self.img_w - l - r)
+        nh = max(1, self.img_h - t - b)
+        self._info.setText(
+            f"Original: {self.img_w} x {self.img_h}   →   Result: {nw} x {nh}")
+
+    def values(self):
+        return {k: sp.value() for k, sp in self._spins.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -483,11 +554,14 @@ class ImageTab(QWidget):
         self.last_dir     = str(Path.home())
         self.worker       = None
         self.auto_update  = True
+        self._history     = []          # list of PIL.Image snapshots for undo
         self._timer       = QTimer()
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.process)
         self._build()
         self.setAcceptDrops(True)
+
+    # -- layout ----------------------------------------------------------------
 
     def _build(self):
         layout = QVBoxLayout(self)
@@ -508,12 +582,12 @@ class ImageTab(QWidget):
         scroll.setWidget(self.canvas)
         layout.addWidget(scroll)
 
-        bar = QWidget()
-        bar.setStyleSheet(
-            "background:#252525; border-top:1px solid #3a3a3a;")
-        bl = QHBoxLayout(bar)
-        bl.setContentsMargins(8, 4, 8, 4)
-        bl.setSpacing(8)
+        # -- primary action bar --
+        bar1 = QWidget()
+        bar1.setStyleSheet("background:#252525; border-top:1px solid #3a3a3a;")
+        bl1 = QHBoxLayout(bar1)
+        bl1.setContentsMargins(8, 4, 8, 4)
+        bl1.setSpacing(8)
         for lbl, slot in [
             ("Open (Ctrl+O)", self.open_file),
             ("Save (Ctrl+S)", self.save_file),
@@ -522,20 +596,52 @@ class ImageTab(QWidget):
             b = QPushButton(lbl)
             b.clicked.connect(slot)
             b.setMinimumHeight(28)
-            bl.addWidget(b)
+            bl1.addWidget(b)
 
         self.auto_cb = QCheckBox("Auto")
         self.auto_cb.setChecked(True)
         self.auto_cb.stateChanged.connect(self._toggle_auto)
-        bl.addWidget(self.auto_cb)
+        bl1.addWidget(self.auto_cb)
 
         self.apply_btn = QPushButton("Apply")
         self.apply_btn.clicked.connect(self.process)
         self.apply_btn.setVisible(False)
         self.apply_btn.setMinimumHeight(28)
-        bl.addWidget(self.apply_btn)
-        bl.addStretch()
-        layout.addWidget(bar)
+        bl1.addWidget(self.apply_btn)
+        bl1.addStretch()
+        layout.addWidget(bar1)
+
+        # -- transform bar --
+        bar2 = QWidget()
+        bar2.setStyleSheet("background:#222; border-top:1px solid #333;")
+        bl2 = QHBoxLayout(bar2)
+        bl2.setContentsMargins(8, 3, 8, 3)
+        bl2.setSpacing(6)
+
+        for lbl, slot in [
+            ("Rot L",   self.rotate_left),
+            ("Rot R",   self.rotate_right),
+            ("Flip H",  self.flip_h),
+            ("Flip V",  self.flip_v),
+            ("Crop...", self.crop),
+        ]:
+            b = QPushButton(lbl)
+            b.clicked.connect(slot)
+            b.setMinimumHeight(24)
+            b.setStyleSheet("font-size:11px; padding:3px 8px;")
+            bl2.addWidget(b)
+
+        bl2.addStretch()
+
+        self.undo_btn = QPushButton("Undo")
+        self.undo_btn.clicked.connect(self.undo)
+        self.undo_btn.setEnabled(False)
+        self.undo_btn.setMinimumHeight(24)
+        self.undo_btn.setStyleSheet("font-size:11px; padding:3px 8px;")
+        bl2.addWidget(self.undo_btn)
+        layout.addWidget(bar2)
+
+    # -- auto/manual toggle ---------------------------------------------------
 
     def _toggle_auto(self, state):
         self.auto_update = (state == Qt.Checked)
@@ -545,6 +651,8 @@ class ImageTab(QWidget):
         if self.auto_update:
             self._timer.stop()
             self._timer.start(400)
+
+    # -- drag & drop ----------------------------------------------------------
 
     def dragEnterEvent(self, e):
         if e.mimeData().hasUrls():
@@ -558,14 +666,16 @@ class ImageTab(QWidget):
                 self._load(p)
                 break
 
+    # -- file operations ------------------------------------------------------
+
     def _load(self, path):
         try:
-            self.original_img = Image.open(path)
+            self.original_img = Image.open(path).convert("RGB")
+            self._history.clear()
+            self.undo_btn.setEnabled(False)
             p = Path(path)
             self.last_dir = str(p.parent)
-            self.info_lbl.setText(
-                f"{p.name}  —  {self.original_img.width}x"
-                f"{self.original_img.height} px")
+            self._refresh_info()
             self.status_message.emit(f"Loaded: {p.name}")
             self.process()
         except Exception as exc:
@@ -595,14 +705,105 @@ class ImageTab(QWidget):
             except Exception as exc:
                 QMessageBox.critical(self, "Error", f"Failed to save:\n{exc}")
 
-    def invert(self):
+    # -- helpers --------------------------------------------------------------
+
+    def _refresh_info(self):
+        if self.original_img:
+            self.info_lbl.setText(
+                f"{self.original_img.width} x {self.original_img.height} px"
+                f"   (history: {len(self._history)})")
+
+    def _push_history(self):
+        """Save a copy of original_img before a destructive transform."""
         if self.original_img is None:
-            QMessageBox.warning(self, "Warning", "No image loaded.")
             return
-        data = 255 - np.array(self.original_img.convert("RGB"))
+        self._history.append(self.original_img.copy())
+        if len(self._history) > _HISTORY_LIMIT:
+            self._history.pop(0)
+        self.undo_btn.setEnabled(True)
+
+    def _require_image(self, op="perform this action"):
+        if self.original_img is None:
+            QMessageBox.warning(self, "Warning", f"Load an image first to {op}.")
+            return False
+        return True
+
+    # -- invert ---------------------------------------------------------------
+
+    def invert(self):
+        if not self._require_image("invert"): return
+        self._push_history()
+        data = 255 - np.array(self.original_img)
         self.original_img = Image.fromarray(data.astype(np.uint8))
-        self.status_message.emit("Colors inverted")
+        self.status_message.emit("Inverted")
+        self._refresh_info()
         self.process()
+
+    # -- transforms -----------------------------------------------------------
+
+    def rotate_left(self):
+        if not self._require_image("rotate"): return
+        self._push_history()
+        self.original_img = self.original_img.rotate(90, expand=True)
+        self.status_message.emit("Rotated 90 CCW")
+        self._refresh_info()
+        self.process()
+
+    def rotate_right(self):
+        if not self._require_image("rotate"): return
+        self._push_history()
+        self.original_img = self.original_img.rotate(-90, expand=True)
+        self.status_message.emit("Rotated 90 CW")
+        self._refresh_info()
+        self.process()
+
+    def flip_h(self):
+        if not self._require_image("flip"): return
+        self._push_history()
+        self.original_img = self.original_img.transpose(Image.FLIP_LEFT_RIGHT)
+        self.status_message.emit("Flipped horizontal")
+        self._refresh_info()
+        self.process()
+
+    def flip_v(self):
+        if not self._require_image("flip"): return
+        self._push_history()
+        self.original_img = self.original_img.transpose(Image.FLIP_TOP_BOTTOM)
+        self.status_message.emit("Flipped vertical")
+        self._refresh_info()
+        self.process()
+
+    def crop(self):
+        if not self._require_image("crop"): return
+        dlg = CropDialog(self.original_img.width, self.original_img.height, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        v  = dlg.values()
+        l, t, r, b = v["left"], v["top"], v["right"], v["bottom"]
+        x2 = self.original_img.width  - r
+        y2 = self.original_img.height - b
+        if l >= x2 or t >= y2:
+            QMessageBox.warning(self, "Crop", "Crop margins leave no image area.")
+            return
+        self._push_history()
+        self.original_img = self.original_img.crop((l, t, x2, y2))
+        self.status_message.emit(
+            f"Cropped to {self.original_img.width} x {self.original_img.height}")
+        self._refresh_info()
+        self.process()
+
+    # -- undo -----------------------------------------------------------------
+
+    def undo(self):
+        if not self._history:
+            return
+        self.original_img = self._history.pop()
+        self.undo_btn.setEnabled(bool(self._history))
+        self.status_message.emit("Undo")
+        self._refresh_info()
+        self.process()
+
+    # -- dither processing ----------------------------------------------------
 
     def process(self):
         if self.original_img is None:
@@ -682,8 +883,7 @@ class VideoTab(QWidget):
         layout.addWidget(self.progress_bar)
 
         bar = QWidget()
-        bar.setStyleSheet(
-            "background:#252525; border-top:1px solid #3a3a3a;")
+        bar.setStyleSheet("background:#252525; border-top:1px solid #3a3a3a;")
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(8, 4, 8, 4)
         bl.setSpacing(8)
@@ -710,8 +910,7 @@ class VideoTab(QWidget):
             warn = QLabel(
                 "opencv-python not installed — video features unavailable")
             warn.setAlignment(Qt.AlignCenter)
-            warn.setStyleSheet(
-                "color:#cc4444; font-size:11px; padding:4px;")
+            warn.setStyleSheet("color:#cc4444; font-size:11px; padding:4px;")
             layout.addWidget(warn)
 
     def open_file(self):
@@ -736,8 +935,7 @@ class VideoTab(QWidget):
         total = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
         p     = Path(path)
         self.last_dir = str(p.parent)
-        self.info_lbl.setText(
-            f"{p.name}  —  {total} frames @ {fps:.1f} fps")
+        self.info_lbl.setText(f"{p.name}  —  {total} frames @ {fps:.1f} fps")
         self.play_btn.setEnabled(True)
         self.status_message.emit(f"Loaded: {p.name}")
         self._next_frame()
@@ -924,12 +1122,11 @@ class ControlPanel(QWidget):
 
         layout.addStretch()
 
-        ver = QLabel("Dither Guy v3.1")
+        ver = QLabel("Dither Guy v3.2")
         ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet("font-size:10px; color:#444; padding:6px;")
         layout.addWidget(ver)
 
-        # wire all sliders
         pairs = [
             (self.pixel_sl,       lambda v: self.pixel_lbl.setText(f"Pixel Size: {v}")),
             (self.thresh_sl,      lambda v: self.thresh_lbl.setText(f"Threshold: {v}")),
@@ -1077,6 +1274,15 @@ QProgressBar {
 QProgressBar::chunk { background: #658a00; border-radius: 2px; }
 QStatusBar { background-color: #252525; color: #888; font-size: 11px; }
 QSplitter::handle { background: #3a3a3a; width: 1px; }
+QSpinBox {
+    background-color: #2d2d2d; border: 1px solid #3a3a3a;
+    border-radius: 4px; padding: 4px;
+}
+QSpinBox:hover { border-color: #4a4a4a; }
+QSpinBox::up-button, QSpinBox::down-button {
+    background: #3a3a3a; width: 18px; border-radius: 2px;
+}
+QDialog { background-color: #1e1e1e; }
 """
 
 
@@ -1157,6 +1363,8 @@ class DitherGuy(QMainWindow):
         act("Zoom Out", "Ctrl+-", self._zoom_out)
         act("Fit",      "Ctrl+0", self._fit)
         act("1:1",      "Ctrl+1", self._actual)
+        tb.addSeparator()
+        act("Undo",     "Ctrl+Z", lambda: self.image_tab.undo())
         tb.addSeparator()
 
         self.zoom_lbl = QLabel("Fit")
