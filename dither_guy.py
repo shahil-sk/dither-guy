@@ -553,8 +553,9 @@ class ImageTab(QWidget):
         self.dithered_img = None
         self.last_dir     = str(Path.home())
         self.worker       = None
+        self._pending     = False       # re-render requested while worker runs
         self.auto_update  = True
-        self._history     = []          # list of PIL.Image snapshots for undo
+        self._history     = []          # PIL.Image snapshots for undo
         self._timer       = QTimer()
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.process)
@@ -714,7 +715,6 @@ class ImageTab(QWidget):
                 f"   (history: {len(self._history)})")
 
     def _push_history(self):
-        """Save a copy of original_img before a destructive transform."""
         if self.original_img is None:
             return
         self._history.append(self.original_img.copy())
@@ -806,14 +806,25 @@ class ImageTab(QWidget):
     # -- dither processing ----------------------------------------------------
 
     def process(self):
+        """Start a new render, or mark pending if one is already running.
+
+        Never overwrites self.worker while it is still running — that is
+        what caused the QThread abort.  Instead we set _pending=True and
+        let _on_done() restart the render once the current one finishes.
+        """
         if self.original_img is None:
             return
+
         if self.worker and self.worker.isRunning():
+            # Signal the running worker to abort early, mark a re-run.
+            self._pending = True
             self.worker.stop()
-            self.worker.quit()
-            self.worker.wait(100)
+            return
+
+        self._pending = False
         self.status_message.emit("Processing...")
         p = self.get_params()
+
         self.worker = DitherWorker(
             self.original_img,
             p['pixel_size'], p['threshold'], p['color'], p['method'],
@@ -821,6 +832,8 @@ class ImageTab(QWidget):
             p['glow_radius'], p['glow_intensity'])
         self.worker.finished.connect(self._on_done)
         self.worker.progress.connect(self.status_message)
+        # deleteLater keeps Qt from holding a destroyed-thread reference.
+        self.worker.finished.connect(self.worker.deleteLater)
         self.worker.start()
 
     def _on_done(self, payload):
@@ -829,6 +842,16 @@ class ImageTab(QWidget):
         self.canvas.set_image(_pil_to_pixmap(img))
         self.canvas.setStyleSheet("")
         self.status_message.emit(f"Done  ({elapsed * 1000:.0f} ms)")
+
+        # If params changed while we were rendering, kick off one more pass.
+        if self._pending:
+            QTimer.singleShot(0, self.process)
+
+    def cleanup(self):
+        """Stop any running worker and wait for it to finish."""
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+            self.worker.wait(10000)
 
     def zoom_in(self):    self.canvas.zoom_in()
     def zoom_out(self):   self.canvas.zoom_out()
@@ -1009,6 +1032,7 @@ class VideoTab(QWidget):
         self.export_worker.finished.connect(self._on_export_done)
         self.export_worker.error.connect(
             lambda msg: QMessageBox.critical(self, "Error", msg))
+        self.export_worker.finished.connect(self.export_worker.deleteLater)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.status_message.emit("Exporting video...")
@@ -1026,19 +1050,22 @@ class VideoTab(QWidget):
         if self.video_cap:
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
+    def cleanup(self):
+        """Stop playback and any running export, release video handle."""
+        if self.is_playing:
+            self.toggle_play()
+        if self.export_worker and self.export_worker.isRunning():
+            self.export_worker.stop()
+            self.export_worker.wait(10000)
+        if self.video_cap:
+            self.video_cap.release()
+            self.video_cap = None
+
     def zoom_in(self):    self.canvas.zoom_in()
     def zoom_out(self):   self.canvas.zoom_out()
     def fit(self):        self.canvas.fit()
     def actual(self):     self.canvas.actual()
     def zoom_level(self): return self.canvas.zoom_level
-
-    def closeEvent(self, event):
-        if self.video_cap:
-            self.video_cap.release()
-        if self.export_worker and self.export_worker.isRunning():
-            self.export_worker.stop()
-            self.export_worker.wait()
-        super().closeEvent(event)
 
 
 # ---------------------------------------------------------------------------
@@ -1122,7 +1149,7 @@ class ControlPanel(QWidget):
 
         layout.addStretch()
 
-        ver = QLabel("Dither Guy v3.2")
+        ver = QLabel("Dither Guy v3.3")
         ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet("font-size:10px; color:#444; padding:6px;")
         layout.addWidget(ver)
@@ -1409,7 +1436,17 @@ class DitherGuy(QMainWindow):
         self.zoom_lbl.setText("Fit" if z == 0 else f"{int(z * 100)}%")
 
     def closeEvent(self, event):
-        self.video_tab.closeEvent(event)
+        """Wait for any running threads before letting Qt destroy widgets."""
+        self.image_tab.cleanup()
+
+        if self.image_tab.worker and self.image_tab.worker.isRunning():
+            # Still not done after 10 s — defer the close.
+            self.statusBar().showMessage("Waiting for worker to stop...")
+            event.ignore()
+            return
+
+        self.video_tab.cleanup()
+        super().closeEvent(event)
 
 
 # ---------------------------------------------------------------------------
