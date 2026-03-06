@@ -21,7 +21,7 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Pre-computed dither matrices — built once at import
+# Pre-computed dither matrices
 # ---------------------------------------------------------------------------
 
 _BAYER_4x4 = np.array([
@@ -95,8 +95,26 @@ def _adjust(img, brightness, contrast, blur, sharpen):
     return img
 
 
+def apply_glow(img, radius, intensity):
+    """Screen-blend a blurred version of the lit pixels back onto the image.
+
+    Works on any background colour because the screen formula only brightens:
+        out = 1 - (1 - base) * (1 - glow * alpha)
+    Dark (black) backgrounds stay black where there is no nearby lit pixel,
+    while the colour spreads outward from each lit pixel as a soft halo.
+    """
+    if radius <= 0 or intensity <= 0:
+        return img
+    blurred  = img.filter(ImageFilter.GaussianBlur(radius=radius))
+    base     = np.array(img,     dtype=np.float32)
+    glow_lyr = np.array(blurred, dtype=np.float32) * (intensity / 100.0)
+    out = 255.0 - (255.0 - base) * (255.0 - glow_lyr) / 255.0
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+
+
 def apply_dither(img, pixel_size, threshold, replace_color, method,
-                 brightness=1.0, contrast=1.0, blur=0, sharpen=0):
+                 brightness=1.0, contrast=1.0, blur=0, sharpen=0,
+                 glow_radius=0, glow_intensity=0):
     img = _adjust(img, brightness, contrast, blur, sharpen)
     img = img.convert('L')
     sw = max(1, img.width  // pixel_size)
@@ -256,7 +274,13 @@ def apply_dither(img, pixel_size, threshold, replace_color, method,
     data = np.array(img)
     mask = (data[:, :, 0] == 255) & (data[:, :, 1] == 255) & (data[:, :, 2] == 255)
     data[mask] = replace_color
-    return Image.fromarray(data)
+    img = Image.fromarray(data)
+
+    # glow is applied after colour replacement so it inherits the chosen colour
+    if glow_radius > 0 and glow_intensity > 0:
+        img = apply_glow(img, glow_radius, glow_intensity)
+
+    return img
 
 
 def _pil_to_pixmap(img):
@@ -274,19 +298,22 @@ class DitherWorker(QThread):
     progress = Signal(str)
 
     def __init__(self, img, pixel_size, threshold, replace_color, method,
-                 brightness, contrast, blur, sharpen):
+                 brightness, contrast, blur, sharpen,
+                 glow_radius=0, glow_intensity=0):
         super().__init__()
-        self.img           = img
-        self.pixel_size    = pixel_size
-        self.threshold     = threshold
-        self.replace_color = replace_color
-        self.method        = method
-        self.brightness    = brightness
-        self.contrast      = contrast
-        self.blur          = blur
-        self.sharpen       = sharpen
-        self._running      = True
-        self._mutex        = QMutex()
+        self.img            = img
+        self.pixel_size     = pixel_size
+        self.threshold      = threshold
+        self.replace_color  = replace_color
+        self.method         = method
+        self.brightness     = brightness
+        self.contrast       = contrast
+        self.blur           = blur
+        self.sharpen        = sharpen
+        self.glow_radius    = glow_radius
+        self.glow_intensity = glow_intensity
+        self._running       = True
+        self._mutex         = QMutex()
 
     def run(self):
         try:
@@ -296,6 +323,7 @@ class DitherWorker(QThread):
                 self.img, self.pixel_size, self.threshold,
                 self.replace_color, self.method,
                 self.brightness, self.contrast, self.blur, self.sharpen,
+                self.glow_radius, self.glow_intensity,
             )
             elapsed = time.perf_counter() - t0
             self._mutex.lock()
@@ -316,26 +344,29 @@ class DitherWorker(QThread):
 # ---------------------------------------------------------------------------
 
 class VideoExportWorker(QThread):
-    frame_ready = Signal(object)    # PIL.Image preview
-    progress    = Signal(int, int)  # current, total
+    frame_ready = Signal(object)
+    progress    = Signal(int, int)
     finished    = Signal()
     error       = Signal(str)
 
     def __init__(self, video_path, save_path, pixel_size, threshold,
-                 replace_color, method, brightness, contrast, blur, sharpen):
+                 replace_color, method, brightness, contrast, blur, sharpen,
+                 glow_radius=0, glow_intensity=0):
         super().__init__()
-        self.video_path    = video_path
-        self.save_path     = save_path
-        self.pixel_size    = pixel_size
-        self.threshold     = threshold
-        self.replace_color = replace_color
-        self.method        = method
-        self.brightness    = brightness
-        self.contrast      = contrast
-        self.blur          = blur
-        self.sharpen       = sharpen
-        self._running      = True
-        self._mutex        = QMutex()
+        self.video_path     = video_path
+        self.save_path      = save_path
+        self.pixel_size     = pixel_size
+        self.threshold      = threshold
+        self.replace_color  = replace_color
+        self.method         = method
+        self.brightness     = brightness
+        self.contrast       = contrast
+        self.blur           = blur
+        self.sharpen        = sharpen
+        self.glow_radius    = glow_radius
+        self.glow_intensity = glow_intensity
+        self._running       = True
+        self._mutex         = QMutex()
 
     def run(self):
         if not _CV2:
@@ -363,7 +394,8 @@ class VideoExportWorker(QThread):
                 dith = apply_dither(
                     pil, self.pixel_size, self.threshold,
                     self.replace_color, self.method,
-                    self.brightness, self.contrast, self.blur, self.sharpen)
+                    self.brightness, self.contrast, self.blur, self.sharpen,
+                    self.glow_radius, self.glow_intensity)
                 out.write(cv2.cvtColor(np.array(dith), cv2.COLOR_RGB2BGR))
                 count += 1
                 self.progress.emit(count, total)
@@ -584,7 +616,8 @@ class ImageTab(QWidget):
         self.worker = DitherWorker(
             self.original_img,
             p['pixel_size'], p['threshold'], p['color'], p['method'],
-            p['brightness'], p['contrast'], p['blur'], p['sharpen'])
+            p['brightness'], p['contrast'], p['blur'], p['sharpen'],
+            p['glow_radius'], p['glow_intensity'])
         self.worker.finished.connect(self._on_done)
         self.worker.progress.connect(self.status_message)
         self.worker.start()
@@ -596,10 +629,10 @@ class ImageTab(QWidget):
         self.canvas.setStyleSheet("")
         self.status_message.emit(f"Done  ({elapsed * 1000:.0f} ms)")
 
-    def zoom_in(self):   self.canvas.zoom_in()
-    def zoom_out(self):  self.canvas.zoom_out()
-    def fit(self):       self.canvas.fit()
-    def actual(self):    self.canvas.actual()
+    def zoom_in(self):    self.canvas.zoom_in()
+    def zoom_out(self):   self.canvas.zoom_out()
+    def fit(self):        self.canvas.fit()
+    def actual(self):     self.canvas.actual()
     def zoom_level(self): return self.canvas.zoom_level
 
 
@@ -741,7 +774,8 @@ class VideoTab(QWidget):
             dith = apply_dither(
                 img, p['pixel_size'], p['threshold'],
                 p['color'], p['method'],
-                p['brightness'], p['contrast'], p['blur'], p['sharpen'])
+                p['brightness'], p['contrast'], p['blur'], p['sharpen'],
+                p['glow_radius'], p['glow_intensity'])
             self.canvas.set_image(_pil_to_pixmap(dith))
             self.canvas.setStyleSheet("")
         except Exception as exc:
@@ -769,7 +803,8 @@ class VideoTab(QWidget):
         self.export_worker = VideoExportWorker(
             self.video_path, path,
             p['pixel_size'], p['threshold'], p['color'], p['method'],
-            p['brightness'], p['contrast'], p['blur'], p['sharpen'])
+            p['brightness'], p['contrast'], p['blur'], p['sharpen'],
+            p['glow_radius'], p['glow_intensity'])
         self.export_worker.frame_ready.connect(
             lambda img: self.canvas.set_image(_pil_to_pixmap(img)))
         self.export_worker.progress.connect(self._on_progress)
@@ -861,6 +896,17 @@ class ControlPanel(QWidget):
         adj.setLayout(al2)
         layout.addWidget(adj)
 
+        # Glow
+        gg = QGroupBox("Glow")
+        gl = QVBoxLayout()
+        gl.setSpacing(4)
+        self.glow_radius_lbl, self.glow_radius_sl = self._slider(
+            gl, "Radius: 0", 0, 40, 0)
+        self.glow_intens_lbl, self.glow_intens_sl = self._slider(
+            gl, "Intensity: 0", 0, 100, 0)
+        gg.setLayout(gl)
+        layout.addWidget(gg)
+
         # Color
         cg = QGroupBox("Color")
         cl = QVBoxLayout()
@@ -878,19 +924,21 @@ class ControlPanel(QWidget):
 
         layout.addStretch()
 
-        ver = QLabel("Dither Guy v3.0")
+        ver = QLabel("Dither Guy v3.1")
         ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet("font-size:10px; color:#444; padding:6px;")
         layout.addWidget(ver)
 
-        # wire sliders
+        # wire all sliders
         pairs = [
-            (self.pixel_sl,  lambda v: self.pixel_lbl.setText(f"Pixel Size: {v}")),
-            (self.thresh_sl, lambda v: self.thresh_lbl.setText(f"Threshold: {v}")),
-            (self.bright_sl, lambda v: self.bright_lbl.setText(f"Brightness: {v/100:.1f}")),
-            (self.contr_sl,  lambda v: self.contr_lbl.setText(f"Contrast: {v/100:.1f}")),
-            (self.blur_sl,   lambda v: self.blur_lbl.setText(f"Blur: {v}")),
-            (self.sharp_sl,  lambda v: self.sharp_lbl.setText(f"Sharpen: {v}")),
+            (self.pixel_sl,       lambda v: self.pixel_lbl.setText(f"Pixel Size: {v}")),
+            (self.thresh_sl,      lambda v: self.thresh_lbl.setText(f"Threshold: {v}")),
+            (self.bright_sl,      lambda v: self.bright_lbl.setText(f"Brightness: {v/100:.1f}")),
+            (self.contr_sl,       lambda v: self.contr_lbl.setText(f"Contrast: {v/100:.1f}")),
+            (self.blur_sl,        lambda v: self.blur_lbl.setText(f"Blur: {v}")),
+            (self.sharp_sl,       lambda v: self.sharp_lbl.setText(f"Sharpen: {v}")),
+            (self.glow_radius_sl, lambda v: self.glow_radius_lbl.setText(f"Radius: {v}")),
+            (self.glow_intens_sl, lambda v: self.glow_intens_lbl.setText(f"Intensity: {v}")),
         ]
         for sl, lbl_fn in pairs:
             sl.valueChanged.connect(lbl_fn)
@@ -912,6 +960,8 @@ class ControlPanel(QWidget):
         self.contr_sl.setValue(100)
         self.blur_sl.setValue(0)
         self.sharp_sl.setValue(0)
+        self.glow_radius_sl.setValue(0)
+        self.glow_intens_sl.setValue(0)
 
     def _pick_color(self):
         c = QColorDialog.getColor(
@@ -929,14 +979,16 @@ class ControlPanel(QWidget):
 
     def get_params(self):
         return {
-            "method":     self.method_combo.currentText(),
-            "pixel_size": self.pixel_sl.value(),
-            "threshold":  self.thresh_sl.value(),
-            "brightness": self.bright_sl.value() / 100.0,
-            "contrast":   self.contr_sl.value()  / 100.0,
-            "blur":       self.blur_sl.value(),
-            "sharpen":    self.sharp_sl.value(),
-            "color":      self.current_color,
+            "method":         self.method_combo.currentText(),
+            "pixel_size":     self.pixel_sl.value(),
+            "threshold":      self.thresh_sl.value(),
+            "brightness":     self.bright_sl.value() / 100.0,
+            "contrast":       self.contr_sl.value()  / 100.0,
+            "blur":           self.blur_sl.value(),
+            "sharpen":        self.sharp_sl.value(),
+            "color":          self.current_color,
+            "glow_radius":    self.glow_radius_sl.value(),
+            "glow_intensity": self.glow_intens_sl.value(),
         }
 
 
