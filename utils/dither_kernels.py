@@ -143,45 +143,41 @@ def _palette_ed_vectorised(
 ) -> np.ndarray:
     """Row-by-row vectorised colour error diffusion.
 
-    For each row the nearest palette colour for ALL pixels is found in one
-    batched call (GPU or CPU einsum), the quantisation error is computed as a
-    (W, 3) array, and each coefficient spreads that error into future rows
-    with a single np.add.at — no per-pixel Python loop at all.
+    For each row all W pixels are snapped to the nearest palette colour in one
+    batched call (GPU or CPU einsum).  Error is spread to neighbouring rows
+    using plain slice assignment — same pattern as all B&W kernels, no
+    np.add.at, no index arrays, no shape mismatch.
     """
     h, w, _ = arr.shape
     out = arr.copy()
 
-    # Pre-build offset arrays for each coefficient to avoid recomputation
     for y in range(h):
-        row = out[y]                          # (W, 3)  — view, writable via out
+        row = out[y].copy()   # (W, 3)  snapshot before snap
 
         # Snap entire row to nearest palette colour in one vectorised call
-        idxs    = _nearest_palette_indices(row.astype(np.float32), pal, pal_lab)
-        snapped = pal[idxs]                   # (W, 3)
-        err     = row - snapped               # (W, 3)
-        out[y]  = snapped
+        idxs       = _nearest_palette_indices(row, pal, pal_lab)
+        snapped    = pal[idxs]          # (W, 3)
+        err        = row - snapped      # (W, 3)  quantisation error
+        out[y]     = snapped
 
-        # Spread quantisation error — one np.add.at per coefficient
+        # Spread error via slice assignment — dx>0 shifts right, dx<0 shifts left
         for dy, dx, wt in coeffs:
             ny = y + dy
             if ny >= h:
                 continue
-            if dx >= 0:
-                src = err[: w - dx] if dx > 0 else err
-                dst_start = dx
-                dst_end   = w
-            else:  # dx < 0
-                src = err[-dx:]
-                dst_start = 0
-                dst_end   = w + dx
-            if dst_end <= dst_start:
-                continue
-            np.add.at(out[ny], np.arange(dst_start, dst_end, dtype=np.intp),
-                      (src * wt).astype(np.float32))
-
-        # Clip row before moving on to keep errors bounded
-        np.clip(out[y + 1] if y + 1 < h else out[y], 0, 255,
-                out=out[y + 1] if y + 1 < h else out[y])
+            if dx > 0:
+                # err pixels [0 .. w-dx-1]  ->  out[ny] pixels [dx .. w-1]
+                if w > dx:
+                    out[ny, dx:] = np.clip(
+                        out[ny, dx:] + err[:w - dx] * wt, 0, 255)
+            elif dx < 0:
+                # err pixels [|dx| .. w-1]  ->  out[ny] pixels [0 .. w-|dx|-1]
+                adx = -dx
+                if w > adx:
+                    out[ny, :w - adx] = np.clip(
+                        out[ny, :w - adx] + err[adx:] * wt, 0, 255)
+            else:  # dx == 0
+                out[ny] = np.clip(out[ny] + err * wt, 0, 255)
 
     return np.clip(out, 0, 255).astype(np.uint8)
 
@@ -657,7 +653,6 @@ def apply_dither(
         if preview:
             result = palette_dither_fast(rgb, palette)
         else:
-            # Full-resolution — no downscale cap; vectorised pipeline handles it
             result = palette_dither(rgb, palette, method=method, threshold=threshold)
         result = result.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
         if glow_radius > 0 and glow_intensity > 0:
