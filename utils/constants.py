@@ -26,3 +26,6 @@ METHOD_GROUPS = {
     ],
 }
 METHODS: list[str] = [m for ms in METHOD_GROUPS.values() for m in ms]
+
+# Populated at runtime by gpu_kernels.py; read by status bar in app.py
+from .gpu_kernels import GPU_BACKEND   # noqa: E402

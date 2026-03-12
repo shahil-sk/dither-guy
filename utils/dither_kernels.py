@@ -7,6 +7,15 @@ from PIL import Image, ImageFilter, ImageEnhance
 
 from .matrices import tile, ORDERED_MATRICES, _DOT_CLASS, _BAYER_4x4
 from .palettes import PALETTES
+from .gpu_kernels import (
+    GPU_BACKEND,
+    gpu_ordered_dither,
+    gpu_fs_dither,
+    gpu_palette_nearest,
+    gpu_rgb_to_lab,
+    from_gpu,
+    to_gpu,
+)
 
 # ---------------------------------------------------------------------------
 # Optional JIT via numba
@@ -54,11 +63,11 @@ def apply_glow(img: Image.Image, radius: float, intensity: float) -> Image.Image
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
 
 # ---------------------------------------------------------------------------
-# Palette dithering (colour images) — optimised
+# Palette helpers — CPU
 # ---------------------------------------------------------------------------
 
 def _rgb_to_lab_batch(rgb: np.ndarray) -> np.ndarray:
-    """Vectorised sRGB → CIE-L*a*b* for an array of shape (..., 3) float32 [0-255]."""
+    """Vectorised sRGB -> CIE-L*a*b* for array (...,3) float32 [0-255] on CPU."""
     r = rgb / 255.0
     mask = r > 0.04045
     r = np.where(mask, ((r + 0.055) / 1.055) ** 2.4, r / 12.92)
@@ -74,16 +83,14 @@ def _rgb_to_lab_batch(rgb: np.ndarray) -> np.ndarray:
     return np.stack([L, a, b], axis=-1)
 
 
-# Alias kept for any external callers
 _rgb_to_lab = _rgb_to_lab_batch
 
-
-# Cache: (palette_id) -> pal_lab np.ndarray  — avoids recomputing per frame
+# Palette LAB cache: avoids recomputing per frame
 _PAL_LAB_CACHE: dict[int, np.ndarray] = {}
 
 
 def _get_pal_lab(pal: np.ndarray) -> np.ndarray:
-    key = id(pal.data) if pal.flags['OWNDATA'] else pal.tobytes().__hash__()
+    key = id(pal.data) if pal.flags['OWNDATA'] else hash(pal.tobytes())
     if key not in _PAL_LAB_CACHE:
         _PAL_LAB_CACHE[key] = _rgb_to_lab_batch(pal)
     return _PAL_LAB_CACHE[key]
@@ -91,13 +98,18 @@ def _get_pal_lab(pal: np.ndarray) -> np.ndarray:
 
 def _nearest_palette_indices(pixels: np.ndarray, pal: np.ndarray,
                               pal_lab: np.ndarray) -> np.ndarray:
-    """Return argmin palette index for each pixel; fully vectorised in L*a*b* space."""
-    pix_lab = _rgb_to_lab_batch(pixels)          # (N, 3)
-    # (N, 1, 3) - (1, K, 3)  →  (N, K, 3)  →  (N, K)
-    diff = pix_lab[:, np.newaxis, :] - pal_lab[np.newaxis, :, :]
-    dists = np.einsum('nkc,nkc->nk', diff, diff)  # faster than np.sum(diff**2)
+    """Nearest palette index for each pixel — GPU if available, else CPU."""
+    if GPU_BACKEND != "cpu":
+        return gpu_palette_nearest(pixels, pal_lab)
+    # CPU vectorised path
+    pix_lab = _rgb_to_lab_batch(pixels)
+    diff    = pix_lab[:, np.newaxis, :] - pal_lab[np.newaxis, :, :]
+    dists   = np.einsum('nkc,nkc->nk', diff, diff)
     return np.argmin(dists, axis=1)
 
+# ---------------------------------------------------------------------------
+# Colour dithering
+# ---------------------------------------------------------------------------
 
 def palette_dither(image: Image.Image, palette: list[tuple],
                    method: str = "Floyd-Steinberg",
@@ -108,7 +120,6 @@ def palette_dither(image: Image.Image, palette: list[tuple],
     pal_lab = _get_pal_lab(pal)
     out = arr.copy()
 
-    # Inline nearest lookup using pre-computed pal_lab
     def nearest(pixel_rgb: np.ndarray) -> np.ndarray:
         p_lab = _rgb_to_lab_batch(pixel_rgb[np.newaxis])[0]
         diff  = pal_lab - p_lab
@@ -139,25 +150,25 @@ def palette_dither(image: Image.Image, palette: list[tuple],
 
 
 def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image:
-    """Fully-vectorised ordered dither + palette snap — no Python pixel loop."""
+    """Ordered dither + GPU palette snap. No Python pixel loop."""
     arr  = np.array(image.convert("RGB"), dtype=np.float32)
     pal  = np.asarray(palette, dtype=np.float32)
     h, w = arr.shape[:2]
 
-    # Bayer noise
+    # Bayer noise on CPU (cheap)
     bayer = tile(_BAYER_4x4, h, w)
     noise = (bayer - 128.0) * 0.3
-    noisy = np.clip(arr + noise[:, :, np.newaxis], 0, 255)  # (H,W,3)
+    noisy = np.clip(arr + noise[:, :, np.newaxis], 0, 255)
 
-    # Vectorised nearest-palette in L*a*b* — single matmul path
     pal_lab = _get_pal_lab(pal)
-    flat    = noisy.reshape(-1, 3)                           # (N,3)
-    idxs    = _nearest_palette_indices(flat, pal, pal_lab)  # (N,)
+    flat    = noisy.reshape(-1, 3)
+    # GPU-accelerated nearest-palette lookup
+    idxs    = _nearest_palette_indices(flat, pal, pal_lab)
     result  = pal[idxs].reshape(h, w, 3)
     return Image.fromarray(result.astype(np.uint8), mode="RGB")
 
 # ---------------------------------------------------------------------------
-# Error diffusion kernels (JIT or NumPy fallbacks)
+# Error diffusion kernels (JIT / NumPy fallbacks)
 # ---------------------------------------------------------------------------
 
 if _NUMBA:
@@ -538,17 +549,16 @@ def _riemersma_vectorised(a: np.ndarray, t: float) -> np.ndarray:
     return np.clip(a, 0, 255).astype(np.uint8)
 
 # ---------------------------------------------------------------------------
-# Replace-colour: vectorised in-place using np boolean mask
+# Replace-colour: vectorised
 # ---------------------------------------------------------------------------
 
 _WHITE = np.array([255, 255, 255], dtype=np.uint8)
 
 def _apply_replace_color(data: np.ndarray, replace_color: tuple) -> np.ndarray:
-    """Replace white pixels with replace_color in-place. Fully vectorised."""
     rc = np.array(replace_color, dtype=np.uint8)
     if np.array_equal(rc, _WHITE):
         return data
-    mask = np.all(data == _WHITE, axis=-1)   # (H, W) bool
+    mask = np.all(data == _WHITE, axis=-1)
     data[mask] = rc
     return data
 
@@ -556,7 +566,6 @@ def _apply_replace_color(data: np.ndarray, replace_color: tuple) -> np.ndarray:
 # Main dither pipeline
 # ---------------------------------------------------------------------------
 
-# Preview size cap: process at most this many pixels per side for previews
 _PREVIEW_MAX_DIM = 480
 
 def apply_dither(
@@ -589,15 +598,11 @@ def apply_dither(
         rgb = img.convert("RGB")
         sw  = max(1, rgb.width  // effective_pixel)
         sh  = max(1, rgb.height // effective_pixel)
-
-        # Cap preview dimensions so interactive response stays snappy
         if preview:
             scale = min(1.0, _PREVIEW_MAX_DIM / max(sw, sh, 1))
             sw = max(1, int(sw * scale))
             sh = max(1, int(sh * scale))
-
         rgb = rgb.resize((sw, sh), Image.NEAREST)
-
         if preview:
             result = palette_dither_fast(rgb, palette)
         else:
@@ -606,58 +611,56 @@ def apply_dither(
                 scale = min(max_dim / sw, max_dim / sh)
                 rgb = rgb.resize((max(1, int(sw*scale)), max(1, int(sh*scale))), Image.NEAREST)
             result = palette_dither(rgb, palette, method=method, threshold=threshold)
-
         result = result.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
         if glow_radius > 0 and glow_intensity > 0:
             result = apply_glow(result, glow_radius, glow_intensity)
         return result
 
-    # ── B&W path ──────────────────────────────────────────────────────────────
+    # -- B&W path --
     img = img.convert('L')
     sw = max(1, img.width  // effective_pixel)
     sh = max(1, img.height // effective_pixel)
-
-    # Limit preview working size to keep UI responsive
     if preview:
         scale = min(1.0, _PREVIEW_MAX_DIM / max(sw, sh, 1))
         sw = max(1, int(sw * scale))
         sh = max(1, int(sh * scale))
-
     img = img.resize((sw, sh), Image.NEAREST)
     a = np.array(img, dtype=np.float32)
     h, w = a.shape
     t = float(threshold)
 
+    # Ordered / matrix methods — fully GPU-accelerated
     if method in ORDERED_MATRICES:
         tiled = tile(ORDERED_MATRICES[method], h, w)
-        a = np.where(a + (tiled - 128.) * (1. - t/255.) > t, 255, 0).astype(np.uint8)
+        a = gpu_ordered_dither(a, tiled, t)
     elif method == "Crosshatch":
         xs = np.arange(w, dtype=np.float32)
         ys = np.arange(h, dtype=np.float32)
         ch = (np.sin(xs[None, :] * 0.5) + np.sin(ys[:, None] * 0.5)) * 64. + 128.
-        a  = np.where(a + (ch - 128.) * (1. - t/255.) > t, 255, 0).astype(np.uint8)
-    elif method == "Blue-Noise Mask":    a = _blue_noise_mask_vectorised(a, t)
-    elif method == "Floyd-Steinberg":    a = _fs_vectorised(a, t)
-    elif method == "Atkinson":           a = _atkinson_vectorised(a, t)
-    elif method == "Sierra":             a = _sierra_vectorised(a, t)
-    elif method == "Sierra-Lite":        a = _sierra_lite_vectorised(a, t)
-    elif method == "Nakano":             a = _nakano_vectorised(a, t)
+        a  = gpu_ordered_dither(a, ch, t)
+    elif method == "Blue-Noise Mask":
+        tiled = _get_blue_noise_mask(h, w)
+        a = gpu_ordered_dither(a, tiled, t)
+    # Floyd-Steinberg: GPU CUDA kernel or CPU fallback
+    elif method == "Floyd-Steinberg":     a = gpu_fs_dither(a, t)
+    elif method == "Atkinson":            a = _atkinson_vectorised(a, t)
+    elif method == "Sierra":              a = _sierra_vectorised(a, t)
+    elif method == "Sierra-Lite":         a = _sierra_lite_vectorised(a, t)
+    elif method == "Nakano":              a = _nakano_vectorised(a, t)
     elif method == "Jarvis-Judice-Ninke": a = _jjn_vectorised(a, t)
-    elif method == "Stucki":             a = _stucki_vectorised(a, t)
-    elif method == "Burkes":             a = _burkes_vectorised(a, t)
-    elif method == "Stevenson-Arce":     a = _stevenson_arce_vectorised(a, t)
-    elif method == "Ostromoukhov":       a = _ostromoukhov_vectorised(a, t)
-    elif method == "Variable-Error":     a = _variable_error_vectorised(a, t)
-    elif method == "Dot-Diffusion":      a = _dot_diffusion_vectorised(a, t)
-    elif method == "Riemersma":          a = _riemersma_vectorised(a, t)
+    elif method == "Stucki":              a = _stucki_vectorised(a, t)
+    elif method == "Burkes":              a = _burkes_vectorised(a, t)
+    elif method == "Stevenson-Arce":      a = _stevenson_arce_vectorised(a, t)
+    elif method == "Ostromoukhov":        a = _ostromoukhov_vectorised(a, t)
+    elif method == "Variable-Error":      a = _variable_error_vectorised(a, t)
+    elif method == "Dot-Diffusion":       a = _dot_diffusion_vectorised(a, t)
+    elif method == "Riemersma":           a = _riemersma_vectorised(a, t)
     else:
         a = np.where(a > t, 255, 0).astype(np.uint8)
 
     img = Image.fromarray(a, mode='L')
     img = img.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
     img = img.convert("RGB")
-
-    # Vectorised replace-colour (avoids slow Python mask loop)
     data = np.array(img)
     data = _apply_replace_color(data, replace_color)
     img = Image.fromarray(data)
