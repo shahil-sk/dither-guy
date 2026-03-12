@@ -12,7 +12,6 @@ from .gpu_kernels import (
     gpu_ordered_dither,
     gpu_fs_dither,
     gpu_palette_nearest,
-    gpu_rgb_to_lab,
     from_gpu,
     to_gpu,
 )
@@ -63,7 +62,7 @@ def apply_glow(img: Image.Image, radius: float, intensity: float) -> Image.Image
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
 
 # ---------------------------------------------------------------------------
-# Palette helpers — CPU
+# Palette helpers
 # ---------------------------------------------------------------------------
 
 def _rgb_to_lab_batch(rgb: np.ndarray) -> np.ndarray:
@@ -85,7 +84,7 @@ def _rgb_to_lab_batch(rgb: np.ndarray) -> np.ndarray:
 
 _rgb_to_lab = _rgb_to_lab_batch
 
-# Palette LAB cache: avoids recomputing per frame
+# Palette LAB cache — never recompute for the same palette array
 _PAL_LAB_CACHE: dict[int, np.ndarray] = {}
 
 
@@ -98,55 +97,109 @@ def _get_pal_lab(pal: np.ndarray) -> np.ndarray:
 
 def _nearest_palette_indices(pixels: np.ndarray, pal: np.ndarray,
                               pal_lab: np.ndarray) -> np.ndarray:
-    """Nearest palette index for each pixel — GPU if available, else CPU."""
+    """Nearest palette index per pixel — GPU if available, else CPU einsum."""
     if GPU_BACKEND != "cpu":
         return gpu_palette_nearest(pixels, pal_lab)
-    # CPU vectorised path
     pix_lab = _rgb_to_lab_batch(pixels)
     diff    = pix_lab[:, np.newaxis, :] - pal_lab[np.newaxis, :, :]
     dists   = np.einsum('nkc,nkc->nk', diff, diff)
     return np.argmin(dists, axis=1)
 
+
 # ---------------------------------------------------------------------------
-# Colour dithering
+# Error-diffusion coefficient tables (dy, dx, weight)
+# ---------------------------------------------------------------------------
+
+_COEFF_TABLES: dict[str, list[tuple]] = {
+    "Floyd-Steinberg":     [(0, 1, 7/16), (1,-1, 3/16), (1, 0, 5/16), (1, 1, 1/16)],
+    "Atkinson":            [(0, 1, 1/8),  (0, 2, 1/8),  (1,-1, 1/8),  (1, 0, 1/8),
+                            (1, 1, 1/8),  (2, 0, 1/8)],
+    "Sierra":              [(0, 1, 5/32), (0, 2, 3/32), (1,-2, 2/32), (1,-1, 4/32),
+                            (1, 0, 5/32), (1, 1, 4/32), (1, 2, 2/32), (2,-1, 2/32),
+                            (2, 0, 3/32), (2, 1, 2/32)],
+    "Burkes":              [(0, 1, 8/32), (0, 2, 4/32), (1,-2, 2/32), (1,-1, 4/32),
+                            (1, 0, 8/32), (1, 1, 4/32), (1, 2, 2/32)],
+    "Stucki":              [(0, 1, 8/42), (0, 2, 4/42), (1,-2, 2/42), (1,-1, 4/42),
+                            (1, 0, 8/42), (1, 1, 4/42), (1, 2, 2/42), (2,-2, 1/42),
+                            (2,-1, 2/42), (2, 0, 4/42), (2, 1, 2/42), (2, 2, 1/42)],
+    "Jarvis-Judice-Ninke": [(0, 1, 7/48), (0, 2, 5/48), (1,-2, 3/48), (1,-1, 5/48),
+                            (1, 0, 7/48), (1, 1, 5/48), (1, 2, 3/48), (2,-2, 1/48),
+                            (2,-1, 3/48), (2, 0, 5/48), (2, 1, 3/48), (2, 2, 1/48)],
+    "Sierra-Lite":         [(0, 1, 2/4),  (1,-1, 1/4),  (1, 0, 1/4)],
+    "Nakano":              [(0, 1, 8/24), (1,-1, 4/24),  (1, 0, 4/24),  (1, 1, 4/24),
+                            (2,-2, 1/24), (2,-1, 2/24),  (2, 0, 1/24)],
+}
+
+
+# ---------------------------------------------------------------------------
+# Core colour error-diffusion — fully vectorised, zero Python pixel loop
+# ---------------------------------------------------------------------------
+
+def _palette_ed_vectorised(
+    arr: np.ndarray,          # float32 (H, W, 3) in [0..255]
+    pal: np.ndarray,          # float32 (K, 3)
+    pal_lab: np.ndarray,      # float32 (K, 3) L*a*b*
+    coeffs: list[tuple],      # [(dy, dx, w), ...]
+) -> np.ndarray:
+    """Row-by-row vectorised colour error diffusion.
+
+    For each row the nearest palette colour for ALL pixels is found in one
+    batched call (GPU or CPU einsum), the quantisation error is computed as a
+    (W, 3) array, and each coefficient spreads that error into future rows
+    with a single np.add.at — no per-pixel Python loop at all.
+    """
+    h, w, _ = arr.shape
+    out = arr.copy()
+
+    # Pre-build offset arrays for each coefficient to avoid recomputation
+    for y in range(h):
+        row = out[y]                          # (W, 3)  — view, writable via out
+
+        # Snap entire row to nearest palette colour in one vectorised call
+        idxs    = _nearest_palette_indices(row.astype(np.float32), pal, pal_lab)
+        snapped = pal[idxs]                   # (W, 3)
+        err     = row - snapped               # (W, 3)
+        out[y]  = snapped
+
+        # Spread quantisation error — one np.add.at per coefficient
+        for dy, dx, wt in coeffs:
+            ny = y + dy
+            if ny >= h:
+                continue
+            if dx >= 0:
+                src = err[: w - dx] if dx > 0 else err
+                dst_start = dx
+                dst_end   = w
+            else:  # dx < 0
+                src = err[-dx:]
+                dst_start = 0
+                dst_end   = w + dx
+            if dst_end <= dst_start:
+                continue
+            np.add.at(out[ny], np.arange(dst_start, dst_end, dtype=np.intp),
+                      (src * wt).astype(np.float32))
+
+        # Clip row before moving on to keep errors bounded
+        np.clip(out[y + 1] if y + 1 < h else out[y], 0, 255,
+                out=out[y + 1] if y + 1 < h else out[y])
+
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
+# Public colour dither entry points
 # ---------------------------------------------------------------------------
 
 def palette_dither(image: Image.Image, palette: list[tuple],
                    method: str = "Floyd-Steinberg",
                    threshold: float = 128.0) -> Image.Image:
-    arr = np.array(image.convert("RGB"), dtype=np.float32)
-    pal = np.asarray(palette, dtype=np.float32)
-    h, w = arr.shape[:2]
+    """High-quality colour error-diffusion dither — fully vectorised."""
+    arr     = np.array(image.convert("RGB"), dtype=np.float32)
+    pal     = np.asarray(palette, dtype=np.float32)
     pal_lab = _get_pal_lab(pal)
-    out = arr.copy()
-
-    def nearest(pixel_rgb: np.ndarray) -> np.ndarray:
-        p_lab = _rgb_to_lab_batch(pixel_rgb[np.newaxis])[0]
-        diff  = pal_lab - p_lab
-        return pal[np.argmin(np.einsum('kc,kc->k', diff, diff))]
-
-    coeff_map = {
-        "Floyd-Steinberg":     [(0,1,7/16),(1,-1,3/16),(1,0,5/16),(1,1,1/16)],
-        "Atkinson":            [(0,1,1/8),(0,2,1/8),(1,-1,1/8),(1,0,1/8),(1,1,1/8),(2,0,1/8)],
-        "Sierra":              [(0,1,5/32),(0,2,3/32),(1,-2,2/32),(1,-1,4/32),(1,0,5/32),(1,1,4/32),(1,2,2/32),(2,-1,2/32),(2,0,3/32),(2,1,2/32)],
-        "Burkes":              [(0,1,8/32),(0,2,4/32),(1,-2,2/32),(1,-1,4/32),(1,0,8/32),(1,1,4/32),(1,2,2/32)],
-        "Stucki":              [(0,1,8/42),(0,2,4/42),(1,-2,2/42),(1,-1,4/42),(1,0,8/42),(1,1,4/42),(1,2,2/42),(2,-2,1/42),(2,-1,2/42),(2,0,4/42),(2,1,2/42),(2,2,1/42)],
-        "Jarvis-Judice-Ninke": [(0,1,7/48),(0,2,5/48),(1,-2,3/48),(1,-1,5/48),(1,0,7/48),(1,1,5/48),(1,2,3/48),(2,-2,1/48),(2,-1,3/48),(2,0,5/48),(2,1,3/48),(2,2,1/48)],
-    }
-    coeffs = coeff_map.get(method, coeff_map["Floyd-Steinberg"])
-
-    for y in range(h):
-        for x in range(w):
-            old = out[y, x].copy()
-            new = nearest(old)
-            out[y, x] = new
-            err = old - new
-            for dy, dx, w_coeff in coeffs:
-                ny, nx = y + dy, x + dx
-                if 0 <= ny < h and 0 <= nx < w:
-                    out[ny, nx] = np.clip(out[ny, nx] + err * w_coeff, 0, 255)
-
-    return Image.fromarray(out.astype(np.uint8), mode="RGB")
+    coeffs  = _COEFF_TABLES.get(method, _COEFF_TABLES["Floyd-Steinberg"])
+    result  = _palette_ed_vectorised(arr, pal, pal_lab, coeffs)
+    return Image.fromarray(result, mode="RGB")
 
 
 def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image:
@@ -155,20 +208,18 @@ def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image
     pal  = np.asarray(palette, dtype=np.float32)
     h, w = arr.shape[:2]
 
-    # Bayer noise on CPU (cheap)
     bayer = tile(_BAYER_4x4, h, w)
     noise = (bayer - 128.0) * 0.3
     noisy = np.clip(arr + noise[:, :, np.newaxis], 0, 255)
 
     pal_lab = _get_pal_lab(pal)
     flat    = noisy.reshape(-1, 3)
-    # GPU-accelerated nearest-palette lookup
     idxs    = _nearest_palette_indices(flat, pal, pal_lab)
     result  = pal[idxs].reshape(h, w, 3)
     return Image.fromarray(result.astype(np.uint8), mode="RGB")
 
 # ---------------------------------------------------------------------------
-# Error diffusion kernels (JIT / NumPy fallbacks)
+# B&W error-diffusion kernels (JIT / NumPy fallbacks)
 # ---------------------------------------------------------------------------
 
 if _NUMBA:
@@ -606,10 +657,7 @@ def apply_dither(
         if preview:
             result = palette_dither_fast(rgb, palette)
         else:
-            max_dim = 300
-            if sw > max_dim or sh > max_dim:
-                scale = min(max_dim / sw, max_dim / sh)
-                rgb = rgb.resize((max(1, int(sw*scale)), max(1, int(sh*scale))), Image.NEAREST)
+            # Full-resolution — no downscale cap; vectorised pipeline handles it
             result = palette_dither(rgb, palette, method=method, threshold=threshold)
         result = result.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
         if glow_radius > 0 and glow_intensity > 0:
@@ -629,7 +677,6 @@ def apply_dither(
     h, w = a.shape
     t = float(threshold)
 
-    # Ordered / matrix methods — fully GPU-accelerated
     if method in ORDERED_MATRICES:
         tiled = tile(ORDERED_MATRICES[method], h, w)
         a = gpu_ordered_dither(a, tiled, t)
@@ -641,7 +688,6 @@ def apply_dither(
     elif method == "Blue-Noise Mask":
         tiled = _get_blue_noise_mask(h, w)
         a = gpu_ordered_dither(a, tiled, t)
-    # Floyd-Steinberg: GPU CUDA kernel or CPU fallback
     elif method == "Floyd-Steinberg":     a = gpu_fs_dither(a, t)
     elif method == "Atkinson":            a = _atkinson_vectorised(a, t)
     elif method == "Sierra":              a = _sierra_vectorised(a, t)
