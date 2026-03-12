@@ -1,46 +1,29 @@
-# dither_guy/theme.py
-# Terminal-phosphor visual theme — centralises every colour token, font
-# stack, and the full Qt stylesheet string (_THEME).
-#
-# Changing a single token here propagates the new colour to every widget
-# automatically; no other file needs to be touched for visual tweaks.
-#
-# Exported names used by the rest of the UI modules:
-#   _P0 … _P6   — background greys (darkest → lightest)
-#   _G0 … _G3   — phosphor greens
-#   _AM          — amber accent
-#   _RE          — error red
-#   _FG _FG2 _FG3— foreground greys
-#   _MONO_FONT, _SANS_FONT — CSS font-family stacks
-#   _THEME       — complete QSS string, applied to QApplication
+from __future__ import annotations
 
-# ── Colour tokens ─────────────────────────────────────────────────────────────
+_P0  = "#1e1e1e"   # main background
+_P1  = "#252526"   # panel background
+_P2  = "#2d2d2d"   # secondary panel
+_P3  = "#333333"   # card / container
+_P4  = "#3c3c3c"   # toolbar
+_P5  = "#464646"   # hover background
+_P6  = "#555555"   # borders / separators
 
-_P0  = "#000000"   # pitch black
-_P1  = "#0a0a0a"
-_P2  = "#111111"
-_P3  = "#1a1a1a"
-_P4  = "#242424"
-_P5  = "#303030"
-_P6  = "#404040"
-_G0  = "#00ff41"   # brightest phosphor green
-_G1  = "#00cc33"
-_G2  = "#009926"
-_G3  = "#006618"   # darkest green — used for borders
-_AM  = "#ffb700"   # amber accent (group headers, warnings)
-_RE  = "#ff3333"   # error / danger red
-_FG  = "#e8e8e8"   # primary foreground text
-_FG2 = "#888888"   # secondary / muted text
-_FG3 = "#555555"   # tertiary / placeholder text
+_G0  = "#3ea6ff"   # primary accent
+_G1  = "#2b88d8"   # hover accent
+_G2  = "#1f6fb2"   # active accent
+_G3  = "#17558a"   # muted accent
 
-# ── Font stacks ───────────────────────────────────────────────────────────────
+_AM  = "#f5a623"   # warning
+_RE  = "#e34850"   # error
 
-_MONO_FONT = ("'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace")
-_SANS_FONT = ("'DM Sans', 'Outfit', 'Nunito', 'Segoe UI', sans-serif")
+_FG  = "#f0f0f0"   # primary text
+_FG2 = "#b9b9b9"   # secondary text
+_FG3 = "#7a7a7a"   # disabled / hint text
 
-# ── Qt stylesheet ─────────────────────────────────────────────────────────────
+_MONO_FONT = "'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace"
+_SANS_FONT = "'DM Sans', 'Outfit', 'Nunito', 'Segoe UI', sans-serif"
 
-_THEME = f"""
+THEME = f"""
 * {{ box-sizing: border-box; }}
 QMainWindow, QWidget {{
     background-color: {_P1};

@@ -1,38 +1,4 @@
-# dither_guy/palettes.py
-# Retro colour palettes and the catalogue of available dithering algorithm
-# names, grouped by category.  Both structures are read by the UI (combo-boxes,
-# swatch grids) and by the core dither pipeline.
-
 from __future__ import annotations
-
-# ---------------------------------------------------------------------------
-# Algorithm catalogue
-# ---------------------------------------------------------------------------
-
-METHOD_GROUPS: dict[str, list[str]] = {
-    "Ordered": [
-        "Bayer 2x2", "Bayer 4x4", "Bayer 8x8",
-        "Clustered-Dot", "Halftone", "Blue-Noise",
-        "Void-and-Cluster", "Pattern", "Crosshatch",
-    ],
-    "Error Diffusion": [
-        "Floyd-Steinberg", "Atkinson", "Sierra", "Sierra-Lite",
-        "Jarvis-Judice-Ninke", "Stucki", "Nakano",
-        "Burkes", "Stevenson-Arce", "Ostromoukhov",
-        "Variable-Error", "Dot-Diffusion", "Riemersma",
-    ],
-    "Stochastic": [
-        "Random", "Blue-Noise Mask",
-    ],
-}
-
-# Flat ordered list — convenient for index lookups
-METHODS: list[str] = [m for ms in METHOD_GROUPS.values() for m in ms]
-
-# ---------------------------------------------------------------------------
-# Colour palettes
-# Each entry is a list of (R, G, B) tuples in 0-255 range.
-# ---------------------------------------------------------------------------
 
 PALETTES: dict[str, list[tuple]] = {
     "B&W": [(0, 0, 0), (255, 255, 255)],

@@ -1,56 +1,23 @@
-# dither_guy/batch.py
-# Batch-processing engine.
-#
-# Applies a fixed set of dither parameters to every supported image inside an
-# input folder and writes PNG results to an output folder.  Processing is
-# parallelised via a ThreadPoolExecutor so multi-core machines keep all cores
-# busy during large runs.
-#
-# Public API
-# ──────────
-#   batch_process(input_folder, output_folder, params,
-#                 progress_cb=None, cancel_flag=None)  →  (success_count, error_count)
-
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PIL import Image
 
-from utils.constants import _VIDEO_WORKERS
-from utils.dither_kernels import apply_dither
+from .dither_kernels import apply_dither
+from .constants import _VIDEO_WORKERS
 
-# Supported input extensions
-_BATCH_IMAGE_EXTS: set[str] = {
-    ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp",
-}
+_BATCH_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp"}
 
 
 def batch_process(
     input_folder: str,
     output_folder: str,
     params: dict,
-    progress_cb: Optional[Callable[[int, int, str], None]] = None,
-    cancel_flag:  Optional[list[bool]] = None,
+    progress_cb=None,
+    cancel_flag=None,
 ) -> tuple[int, int]:
-    """Apply dither to every image in *input_folder*, saving PNGs to *output_folder*.
-
-    Parameters
-    ──────────
-    input_folder  : path to the folder containing source images
-    output_folder : destination folder (created if it does not exist)
-    params        : parameter dict as returned by ControlPanel.get_params()
-    progress_cb   : optional callable(done: int, total: int, name: str)
-                    called after each file completes
-    cancel_flag   : a single-element list ``[False]``; set ``[True]`` to
-                    request cancellation between frames
-
-    Returns
-    ───────
-    (success_count, error_count) tuple
-    """
     in_dir  = Path(input_folder)
     out_dir = Path(output_folder)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -60,9 +27,9 @@ def batch_process(
     success = 0
     errors  = 0
 
-    def _process_one(fp: Path) -> tuple[bool, str]:
+    def process_one(fp: Path):
         try:
-            img    = Image.open(fp).convert("RGB")
+            img = Image.open(fp).convert("RGB")
             result = apply_dither(
                 img,
                 params.get("pixel_size", 4),
@@ -85,10 +52,9 @@ def batch_process(
             return False, f"{fp.name}: {exc}"
 
     workers = min(_VIDEO_WORKERS, max(1, total))
-    done    = 0
-
+    done = 0
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {ex.submit(_process_one, fp): fp for fp in files}
+        futures = {ex.submit(process_one, fp): fp for fp in files}
         for fut in as_completed(futures):
             if cancel_flag and cancel_flag[0]:
                 ex.shutdown(wait=False, cancel_futures=True)
