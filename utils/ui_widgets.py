@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from typing import Optional
 
 import numpy as np
@@ -11,41 +12,37 @@ from toga.style.pack import COLUMN, ROW
 
 
 # ---------------------------------------------------------------------------
-# PIL image -> bytes for toga.Image
+# PIL image -> toga.Image
 # ---------------------------------------------------------------------------
 
 def pil_to_toga_image(img: Image.Image) -> toga.Image:
-    """Convert a PIL Image to a toga.Image via PNG bytes."""
-    import io
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    return toga.Image(data=buf.read())
+    # toga 0.5.x uses src= instead of data=
+    return toga.Image(src=buf.read())
 
 
 # ---------------------------------------------------------------------------
-# Separator helper (a thin box used as a visual divider)
+# Separators
 # ---------------------------------------------------------------------------
 
 def hsep() -> toga.Box:
-    return toga.Box(style=Pack(height=1, background_color="#333", padding=(4, 0)))
+    return toga.Box(style=Pack(height=1, background_color="#333333", padding=(4, 0)))
 
 
 def vsep() -> toga.Box:
-    return toga.Box(style=Pack(width=1, background_color="#333", padding=(0, 4)))
+    return toga.Box(style=Pack(width=1, background_color="#333333", padding=(0, 4)))
 
 
 # ---------------------------------------------------------------------------
-# Zoomable image view (Toga ImageView wrapper)
+# Zoomable image view
 # ---------------------------------------------------------------------------
 
 class ZoomableImageView:
-    """Wraps a toga.ImageView and keeps track of a zoom level."""
-
     def __init__(self, placeholder: str = ""):
-        self.zoom_level: float = 0.0  # 0 = fit
+        self.zoom_level: float = 0.0
         self._original: Optional[Image.Image] = None
-        self._placeholder = placeholder
 
         self._label = toga.Label(
             placeholder,
@@ -82,7 +79,7 @@ class ZoomableImageView:
 
 
 # ---------------------------------------------------------------------------
-# Compact slider row factory
+# Slider row factory
 # ---------------------------------------------------------------------------
 
 def make_slider(
@@ -91,11 +88,7 @@ def make_slider(
     mx: int,
     val: int,
     on_change=None,
-) -> tuple[toga.Box, toga.Slider, toga.Label]:
-    """
-    Returns (row_box, slider, value_label).
-    row_box can be added directly to a toga layout.
-    """
+) -> tuple:
     value_label = toga.Label(
         str(val),
         style=Pack(width=40, text_align="right", font_size=11),
@@ -117,10 +110,7 @@ def make_slider(
 
     row = toga.Box(
         children=[
-            toga.Label(
-                label_text,
-                style=Pack(width=96, font_size=11),
-            ),
+            toga.Label(label_text, style=Pack(width=96, font_size=11)),
             slider,
             value_label,
         ],
