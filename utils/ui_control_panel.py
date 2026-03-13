@@ -23,12 +23,11 @@ class ControlPanel:
     """
 
     def __init__(self, on_change=None):
-        self._on_change = on_change  # callable with no args
+        self._on_change = on_change
         self.current_color: tuple = (255, 255, 255)
         self._custom_palette: list[tuple] = []
         self._widget: toga.ScrollContainer | None = None
 
-        # Slider widgets (set in build)
         self._pixel_sl: toga.Slider | None = None
         self._thresh_sl: toga.Slider | None = None
         self._bright_sl: toga.Slider | None = None
@@ -38,7 +37,6 @@ class ControlPanel:
         self._glow_r_sl: toga.Slider | None = None
         self._glow_i_sl: toga.Slider | None = None
 
-        # Combo / text widgets
         self._method_sel: toga.Selection | None = None
         self._palette_sel: toga.Selection | None = None
         self._preset_name: toga.TextInput | None = None
@@ -83,12 +81,11 @@ class ControlPanel:
         inner.add(co_row)
         inner.add(bl_row)
         inner.add(sh_row)
-        reset_btn = toga.Button(
+        inner.add(toga.Button(
             "Reset Adjustments",
             on_press=self._reset,
             style=Pack(padding=(4, 0)),
-        )
-        inner.add(reset_btn)
+        ))
         inner.add(hsep())
 
         # --- Glow ---
@@ -107,6 +104,7 @@ class ControlPanel:
             style=Pack(padding=(4, 0), font_size=11),
         )
         inner.add(self._color_label)
+        # async handler — Toga calls this as a coroutine automatically
         inner.add(toga.Button(
             "Pick Colour",
             on_press=self._pick_color,
@@ -168,7 +166,7 @@ class ControlPanel:
         return self._widget
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Helpers
     # ------------------------------------------------------------------
 
     def _emit(self):
@@ -185,48 +183,56 @@ class ControlPanel:
                 sl.value = v
         self._emit()
 
-    def _pick_color(self, widget=None):
-        # Toga does not have a built-in color picker; use a simple dialog asking hex input
-        # This is a best-effort cross-platform approach
-        import toga
-        async def _ask(window):
-            result = await window.text_dialog(
-                "Pick Colour",
-                "Enter hex color (e.g. #FF0041):",
+    async def _pick_color(self, widget=None):
+        """
+        Async handler — Toga's event loop awaits this directly,
+        so the dialog appears and returns properly.
+        """
+        window = self._widget.app.main_window
+        result = await window.text_dialog(
+            "Pick Colour",
+            "Enter a hex color (e.g. #FF0041):",
+        )
+        if not result:
+            return
+        try:
+            h = result.strip().lstrip("#")
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            self.current_color = (r, g, b)
+            if self._color_label:
+                self._color_label.text = f"#{r:02X}{g:02X}{b:02X}"
+            self._emit()
+        except Exception:
+            await window.error_dialog(
+                "Invalid Color",
+                "Could not parse that color. Use 6-digit hex like #FF0041.",
             )
-            if result:
-                try:
-                    h = result.strip().lstrip("#")
-                    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-                    self.current_color = (r, g, b)
-                    self._color_label.text = f"#{r:02X}{g:02X}{b:02X}"
-                    self._emit()
-                except Exception:
-                    pass
-        import asyncio
-        if self._widget:
-            asyncio.ensure_future(_ask(self._widget.app.main_window))
 
-    def _add_custom_color(self, widget=None):
-        async def _ask(window):
-            result = await window.text_dialog(
-                "Add Palette Color",
-                "Enter hex color (e.g. #00FF41):",
+    async def _add_custom_color(self, widget=None):
+        """
+        Async handler — same pattern as _pick_color.
+        """
+        window = self._widget.app.main_window
+        result = await window.text_dialog(
+            "Add Palette Color",
+            "Enter a hex color (e.g. #00FF41):",
+        )
+        if not result:
+            return
+        try:
+            h = result.strip().lstrip("#")
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            self._custom_palette.append((r, g, b))
+            existing = [self._palette_sel.items[i] for i in range(len(self._palette_sel.items))]
+            if "Custom" not in existing:
+                self._palette_sel.items.append("Custom")
+            self._palette_sel.value = "Custom"
+            self._emit()
+        except Exception:
+            await window.error_dialog(
+                "Invalid Color",
+                "Could not parse that color. Use 6-digit hex like #00FF41.",
             )
-            if result:
-                try:
-                    h = result.strip().lstrip("#")
-                    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-                    self._custom_palette.append((r, g, b))
-                    if "Custom" not in [self._palette_sel.items[i] for i in range(len(self._palette_sel.items))]:
-                        self._palette_sel.items.append("Custom")
-                    self._palette_sel.value = "Custom"
-                    self._emit()
-                except Exception:
-                    pass
-        import asyncio
-        if self._widget:
-            asyncio.ensure_future(_ask(self._widget.app.main_window))
 
     def _clear_custom(self, widget=None):
         self._custom_palette.clear()
