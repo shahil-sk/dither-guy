@@ -81,7 +81,7 @@ class ControlPanel(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.current_color = (0, 255, 65)
+        self.current_color = (255, 255, 255)
         self._dragging_slider = False
         self._custom_palette: list[tuple] = []
         self._build()
@@ -182,7 +182,7 @@ class ControlPanel(QWidget):
         if _NUMBA:
             jit_lbl = QLabel("◆ numba JIT active"); jit_lbl.setAlignment(Qt.AlignCenter)
             jit_lbl.setStyleSheet(
-                f"font-family:{_MONO_FONT}; font-size:9px; color:{_G2}; padding:0 0 6px 0;")
+                f"font-family:{_MONO_FONT}; font-size:9px; color:{_FG}; padding:0 0 6px 0;")
             layout.addWidget(jit_lbl)
         ver = QLabel(f"DITHER GUY  v{VERSION}"); ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet(

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from utils.constants import METHODS, VERSION, _VIDEO_WORKERS
 from utils.palettes import PALETTES
-from utils.theme import THEME, _G0, _G1, _G2, _G3, _P0, _P2, _P4, _P5, _MONO_FONT
+from utils.theme import THEME, _G0, _G1, _G2, _G3, _P0, _P2, _P3, _P4, _P5, _FG, _MONO_FONT
 from utils.ui_control_panel import ControlPanel
 from utils.ui_tabs import ImageTab, VideoTab
 from utils.ui_dialogs import BatchDialog
@@ -71,12 +71,12 @@ class DitherGuy(QMainWindow):
 
         ctrl_container = QWidget()
         ctrl_container.setMinimumWidth(230); ctrl_container.setMaximumWidth(300)
-        ctrl_container.setStyleSheet(f"background:{_P0}; border-left:1px solid {_G3};")
+        ctrl_container.setStyleSheet(f"background:{_P2};")
         from PySide6.QtWidgets import QVBoxLayout
         cl = QVBoxLayout(ctrl_container); cl.setContentsMargins(0, 0, 0, 0)
         cl.addWidget(self.controls)
         splitter.addWidget(ctrl_container)
-        splitter.setSizes([840, 260]); splitter.setCollapsible(1, False)
+        splitter.setSizes([840, 280]); splitter.setCollapsible(1, False)
 
     def _build_toolbar(self):
         tb = QToolBar("Main"); tb.setMovable(False)
@@ -85,7 +85,7 @@ class DitherGuy(QMainWindow):
 
         brand = QLabel("DITHER GUY")
         brand.setStyleSheet(
-            f"font-family:{_MONO_FONT}; color:{_G0}; font-weight:bold;"
+            f"font-family:{_MONO_FONT}; color:{_FG}; font-weight:bold;"
             "font-size:13px; letter-spacing:3px; padding:0 14px;")
         tb.addWidget(brand)
 
@@ -111,7 +111,7 @@ class DitherGuy(QMainWindow):
         self.zoom_lbl.setAlignment(Qt.AlignCenter)
         self.zoom_lbl.setStyleSheet(
             f"font-family:{_MONO_FONT}; color:{_G1}; font-size:10px;"
-            f"background:{_P2}; border:1px solid {_P5}; border-radius:2px;"
+            f"background:{_P2}; border:1px solid {_P5}; border-radius:1px;"
             "padding:2px 5px; margin:3px;")
         tb.addWidget(self.zoom_lbl)
 

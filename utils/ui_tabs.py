@@ -56,7 +56,7 @@ class ImageTab(QWidget):
         self.info_lbl.setAlignment(Qt.AlignCenter)
         self.info_lbl.setStyleSheet(
             f"font-family:{_MONO_FONT}; font-size:10px; padding:4px 8px;"
-            f"background:{_P0}; color:{_FG3}; border-bottom:1px solid {_G3};")
+            f"background:{_P0}; color:{_FG3};")
         layout.addWidget(self.info_lbl)
 
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
@@ -70,7 +70,7 @@ class ImageTab(QWidget):
 
         # Primary bar
         bar1 = QWidget()
-        bar1.setStyleSheet(f"background:{_P0}; border-top:1px solid {_G3};")
+        bar1.setStyleSheet(f"background:{_P0};")
         bl1 = QHBoxLayout(bar1); bl1.setContentsMargins(8, 5, 8, 5); bl1.setSpacing(5)
 
         def mbt(label, slot, accent=False, tip=""):
@@ -336,7 +336,7 @@ class VideoTab(QWidget):
         self.info_lbl = QLabel("no video loaded"); self.info_lbl.setAlignment(Qt.AlignCenter)
         self.info_lbl.setStyleSheet(
             f"font-family:{_MONO_FONT}; font-size:10px; padding:4px;"
-            f"background:{_P0}; color:{_FG3}; border-bottom:1px solid {_G3};")
+            f"background:{_P0}; color:{_FG3};")
         layout.addWidget(self.info_lbl)
 
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
@@ -352,13 +352,13 @@ class VideoTab(QWidget):
         bar = QWidget()
         bar.setStyleSheet(f"background:{_P0}; border-top:1px solid {_G3};")
         bl = QHBoxLayout(bar); bl.setContentsMargins(8, 5, 8, 5); bl.setSpacing(5)
-        btn_open = QPushButton("▶ Open Video"); btn_open.setObjectName("accent")
-        btn_open.clicked.connect(self.open_file); btn_open.setMinimumHeight(28)
-        bl.addWidget(btn_open)
+        # btn_open = QPushButton("▶ Open Video"); btn_open.setObjectName("accent")
+        # btn_open.clicked.connect(self.open_file); btn_open.setMinimumHeight(28)
+        # bl.addWidget(btn_open)
         self.play_btn = QPushButton("▶ Play"); self.play_btn.clicked.connect(self.toggle_play)
         self.play_btn.setEnabled(False); self.play_btn.setMinimumHeight(28); bl.addWidget(self.play_btn)
-        btn_exp = QPushButton("▼ Export"); btn_exp.clicked.connect(self.export_video)
-        btn_exp.setMinimumHeight(28); bl.addWidget(btn_exp)
+        # btn_exp = QPushButton("▼ Export"); btn_exp.clicked.connect(self.export_video)
+        # btn_exp.setMinimumHeight(28); bl.addWidget(btn_exp)
         bl.addStretch(); layout.addWidget(bar)
 
         if not _CV2:

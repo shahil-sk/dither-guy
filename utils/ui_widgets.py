@@ -11,7 +11,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QLabel, QFrame, QSizePolicy
 
-from .theme import _P0, _P2, _P4, _P5, _G0, _G3, _MONO_FONT
+from .theme import _P0, _P2, _P4, _P5, _FG, _FG2, _G0, _G3, _MONO_FONT
 
 
 # ---------------------------------------------------------------------------
@@ -140,11 +140,11 @@ def make_slider(parent_layout, label_base: str, mn: int, mx: int, val: int,
     row = QWidget(); rl = QHBoxLayout(row)
     rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(4)
     lbl = QLabel(label_base)
-    lbl.setStyleSheet(f"color:#888888; font-size:11px; font-family:{_MONO_FONT};")
-    lbl.setFixedWidth(76)
+    lbl.setStyleSheet(f"color:{_FG}; font-size:11px; font-family:{_MONO_FONT};")
+    lbl.setFixedWidth(96)
     val_lbl = QLabel(fmt.format(v=val))
     val_lbl.setStyleSheet(
-        f"color:{_G0}; font-size:11px; font-family:{_MONO_FONT};"
+        f"color:{_FG2}; font-size:11px; font-family:{_MONO_FONT};"
         "font-weight:bold; min-width:36px;")
     val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
     rl.addWidget(lbl); rl.addStretch(); rl.addWidget(val_lbl)
