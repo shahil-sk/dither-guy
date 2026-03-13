@@ -1,21 +1,15 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QAction
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QHBoxLayout,
-    QSplitter, QTabWidget, QToolBar, QLabel,
-)
+import toga
+from toga.style import Pack
+from toga.style.pack import COLUMN, ROW
 
 from utils.constants import METHODS, VERSION, _VIDEO_WORKERS
 from utils.palettes import PALETTES
-from utils.theme import THEME, _G0, _G1, _G2, _G3, _P0, _P2, _P3, _P4, _P5, _FG, _MONO_FONT
 from utils.ui_control_panel import ControlPanel
 from utils.ui_tabs import ImageTab, VideoTab
-from utils.ui_dialogs import BatchDialog
 
 try:
     from utils.dither_kernels import _NUMBA
@@ -23,143 +17,110 @@ except ImportError:
     _NUMBA = False
 
 
-class DitherGuy(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle(f"DITHER GUY  v{VERSION}")
-        self.setMinimumSize(880, 580)
-        self.setStyleSheet(THEME)
-        self._load_icon()
+class DitherGuy(toga.App):
+    def startup(self):
+        self.status_label = toga.Label(
+            "",
+            style=Pack(padding=(2, 8), font_size=10),
+        )
 
-        self.controls  = ControlPanel()
-        self.image_tab = ImageTab(self.controls.get_params)
-        self.video_tab = VideoTab(self.controls.get_params)
+        self.image_tab = ImageTab(self._get_params, self._show_status)
+        self.video_tab = VideoTab(self._get_params, self._show_status)
+        self.control_panel = ControlPanel(self._on_params_changed)
 
-        self.controls.params_changed.connect(self._on_params_changed)
-        self.controls.params_changed_preview.connect(self._on_params_preview)
-        self.image_tab.status_message.connect(self._show_status)
-        self.video_tab.status_message.connect(self._show_status)
+        # Tab container
+        self.tabs = toga.OptionContainer(
+            content=[
+                ("Image", self.image_tab.build()),
+                ("Video", self.video_tab.build()),
+            ],
+            style=Pack(flex=1),
+        )
 
-        self._build_ui()
-        jit_tag = "  ·  numba JIT ⚡" if _NUMBA else ""
+        # Main split: tabs on left, controls on right
+        main_row = toga.Box(
+            children=[
+                self.tabs,
+                self.control_panel.build(),
+            ],
+            style=Pack(direction=ROW, flex=1),
+        )
+
+        # Toolbar-like top bar
+        top_bar = toga.Box(
+            children=[
+                toga.Label(
+                    f"DITHER GUY  v{VERSION}",
+                    style=Pack(padding=(4, 14), font_size=13, font_weight="bold"),
+                ),
+                toga.Button("Open",   on_press=self._open,    style=Pack(padding=4)),
+                toga.Button("Save",   on_press=self._save,    style=Pack(padding=4)),
+                toga.Button("Batch",  on_press=self._batch,   style=Pack(padding=4)),
+                toga.Button("Zoom +", on_press=self._zoom_in,  style=Pack(padding=4)),
+                toga.Button("Zoom -", on_press=self._zoom_out, style=Pack(padding=4)),
+                toga.Button("Fit",    on_press=self._fit,      style=Pack(padding=4)),
+                toga.Button("1:1",    on_press=self._actual,   style=Pack(padding=4)),
+                toga.Button("Undo",   on_press=self._undo,     style=Pack(padding=4)),
+                self.status_label,
+            ],
+            style=Pack(direction=ROW, padding=4),
+        )
+
+        root = toga.Box(
+            children=[top_bar, main_row],
+            style=Pack(direction=COLUMN, flex=1),
+        )
+
+        self.main_window = toga.MainWindow(title=f"DITHER GUY  v{VERSION}")
+        self.main_window.content = root
+        self.main_window.show()
+
+        jit_tag = "  numba JIT active" if _NUMBA else ""
         self._show_status(
-            f"ready  ·  {len(METHODS)} algorithms  ·  {len(PALETTES)} palettes"
-            f"  ·  {_VIDEO_WORKERS} workers{jit_tag}")
+            f"ready  {len(METHODS)} algorithms  {len(PALETTES)} palettes"
+            f"  {_VIDEO_WORKERS} workers{jit_tag}")
+
+    def _get_params(self) -> dict:
+        return self.control_panel.get_params()
 
     def _show_status(self, msg: str):
-        self.statusBar().showMessage(f"  {msg}")
+        self.status_label.text = f"  {msg}"
 
-    def _load_icon(self):
-        for name in ("app_icon.png", "app_icon.ico"):
-            p = Path(name)
-            if p.exists():
-                self.setWindowIcon(QIcon(str(p))); return
-
-    def _build_ui(self):
-        self._build_toolbar()
-        central = QWidget(); self.setCentralWidget(central)
-        root = QHBoxLayout(central)
-        root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
-
-        splitter = QSplitter(Qt.Horizontal); root.addWidget(splitter)
-
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self.image_tab, "▣  Image")
-        self.tabs.addTab(self.video_tab, "▶  Video")
-        self.tabs.currentChanged.connect(lambda _: self._update_zoom_lbl())
-        splitter.addWidget(self.tabs)
-
-        ctrl_container = QWidget()
-        ctrl_container.setMinimumWidth(230); ctrl_container.setMaximumWidth(300)
-        ctrl_container.setStyleSheet(f"background:{_P2};")
-        from PySide6.QtWidgets import QVBoxLayout
-        cl = QVBoxLayout(ctrl_container); cl.setContentsMargins(0, 0, 0, 0)
-        cl.addWidget(self.controls)
-        splitter.addWidget(ctrl_container)
-        splitter.setSizes([840, 280]); splitter.setCollapsible(1, False)
-
-    def _build_toolbar(self):
-        tb = QToolBar("Main"); tb.setMovable(False)
-        tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self.addToolBar(tb)
-
-        brand = QLabel("DITHER GUY")
-        brand.setStyleSheet(
-            f"font-family:{_MONO_FONT}; color:{_FG}; font-weight:bold;"
-            "font-size:13px; letter-spacing:3px; padding:0 14px;")
-        tb.addWidget(brand)
-
-        def act(label, shortcut, slot, tip=""):
-            a = QAction(label, self)
-            if shortcut: a.setShortcut(shortcut)
-            if tip: a.setStatusTip(tip)
-            a.triggered.connect(slot); tb.addAction(a); return a
-
-        act("open",  "Ctrl+O", self._open,  "Open image")
-        act("save",  "Ctrl+S", self._save,  "Save output")
-        act("batch", "Ctrl+B", self._batch, "Batch process folder")
-        tb.addSeparator()
-        act("zoom+", "Ctrl+=", self._zoom_in)
-        act("zoom-", "Ctrl+-", self._zoom_out)
-        act("fit",   "Ctrl+0", self._fit)
-        act("1:1",   "Ctrl+1", self._actual)
-        tb.addSeparator()
-        act("undo",  "Ctrl+Z", lambda: self.image_tab.undo())
-        tb.addSeparator()
-
-        self.zoom_lbl = QLabel("fit"); self.zoom_lbl.setMinimumWidth(46)
-        self.zoom_lbl.setAlignment(Qt.AlignCenter)
-        self.zoom_lbl.setStyleSheet(
-            f"font-family:{_MONO_FONT}; color:{_G1}; font-size:10px;"
-            f"background:{_P2}; border:1px solid {_P5}; border-radius:1px;"
-            "padding:2px 5px; margin:3px;")
-        tb.addWidget(self.zoom_lbl)
-
-    def _active(self):
-        return self.image_tab if self.tabs.currentIndex() == 0 else self.video_tab
+    def _active_tab(self):
+        return (
+            self.image_tab
+            if self.tabs.current_tab.text == "Image"
+            else self.video_tab
+        )
 
     def _on_params_changed(self):
-        if self.tabs.currentIndex() == 0: self.image_tab.schedule(preview=False)
+        if self.tabs.current_tab.text == "Image":
+            self.image_tab.schedule()
 
-    def _on_params_preview(self):
-        if self.tabs.currentIndex() == 0: self.image_tab.schedule(preview=True)
+    def _open(self, widget):
+        self._active_tab().open_file(self.main_window)
 
-    def _open(self): self._active().open_file()
+    def _save(self, widget):
+        self._active_tab().save_file(self.main_window)
 
-    def _save(self):
-        if self.tabs.currentIndex() == 0:
-            self.image_tab.save_file()
-        else:
-            self.video_tab.export_video()
+    def _batch(self, widget):
+        from utils.ui_dialogs import show_batch_dialog
+        show_batch_dialog(self.main_window, self._get_params)
 
-    def _batch(self):
-        dlg = BatchDialog(self.controls.get_params, self); dlg.exec()
-
-    def _zoom_in(self):  self._active().zoom_in();  self._update_zoom_lbl()
-    def _zoom_out(self): self._active().zoom_out(); self._update_zoom_lbl()
-    def _fit(self):      self._active().fit();       self.zoom_lbl.setText("fit")
-    def _actual(self):   self._active().actual();    self._update_zoom_lbl()
-
-    def _update_zoom_lbl(self):
-        z = self._active().zoom_level()
-        self.zoom_lbl.setText("fit" if z == 0 else f"{int(z * 100)}%")
-
-    def closeEvent(self, event):
-        self.image_tab._stop_worker()
-        self.video_tab.closeEvent(event)
-        super().closeEvent(event)
+    def _zoom_in(self, widget):  self._active_tab().zoom_in()
+    def _zoom_out(self, widget): self._active_tab().zoom_out()
+    def _fit(self, widget):      self._active_tab().fit()
+    def _actual(self, widget):   self._active_tab().actual()
+    def _undo(self, widget):     self.image_tab.undo()
 
 
 def main():
-    QApplication.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-    app = QApplication(sys.argv)
-    app.setApplicationName("Dither Guy")
-    app.setApplicationVersion(VERSION)
-    w = DitherGuy()
-    w.show()
-    sys.exit(app.exec())
+    return DitherGuy(
+        formal_name="Dither Guy",
+        app_id="com.ditherGuy.app",
+        app_name="dither_guy",
+    )
 
 
 if __name__ == "__main__":
-    main()
+    main().main_loop()
