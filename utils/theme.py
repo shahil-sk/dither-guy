@@ -1,46 +1,47 @@
 from __future__ import annotations
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-# _P0  = "#0f0f10"   # deepest background
-# _P1  = "#161618"   # main background
-# _P2  = "#1c1c1f"   # panel / sidebar background
-# _P3  = "#222226"   # card / container
-# _P4  = "#2a2a2e"   # toolbar / elevated surface
-# _P5  = "#35353b"   # borders (normal)
-# _P6  = "#48484f"   # borders (hover)
 
-# # Accent — electric violet-blue
-# _G0  = "#7c6dff"   # primary accent
-# _G1  = "#6458e8"   # hover accent
-# _G2  = "#4e44cc"   # active / pressed accent
-# _G3  = "#312d80"   # muted accent / tint fills
+_P0  = "#0f0f10"   # deepest background
+_P1  = "#161618"   # main background
+_P2  = "#1c1c1f"   # panel / sidebar background
+_P3  = "#222226"   # card / container
+_P4  = "#2a2a2e"   # toolbar / elevated surface
+_P5  = "#35353b"   # borders (normal)
+_P6  = "#48484f"   # borders (hover)
 
-# _AM  = "#f5a623"   # warning
-# _RE  = "#ff4f5e"   # error
-
-# _FG  = "#f2f2f5"   # primary text
-# _FG2 = "#a0a0b0"   # secondary text
-# _FG3 = "#5a5a6a"   # disabled / hint text
-
-_P0  = "#1e1e1e"   # main background
-_P1  = "#252526"   # panel background
-_P2  = "#2d2d2d"   # secondary panel
-_P3  = "#333333"   # card / container
-_P4  = "#3c3c3c"   # toolbar
-_P5  = "#464646"   # hover background
-_P6  = "#555555"   # borders / separators
-
-_G0  = "#3ea6ff"   # primary accent
-_G1  = "#2b88d8"   # hover accent
-_G2  = "#1f6fb2"   # active accent
-_G3  = "#17558a"   # muted accent
+# Accent — electric violet-blue
+_G0  = "#7c6dff"   # primary accent
+_G1  = "#6458e8"   # hover accent
+_G2  = "#4e44cc"   # active / pressed accent
+_G3  = "#312d80"   # muted accent / tint fills
 
 _AM  = "#f5a623"   # warning
-_RE  = "#e34850"   # error
+_RE  = "#ff4f5e"   # error
 
-_FG  = "#f0f0f0"   # primary text
-_FG2 = "#b9b9b9"   # secondary text
-_FG3 = "#7a7a7a"   # disabled / hint text
+_FG  = "#f2f2f5"   # primary text
+_FG2 = "#a0a0b0"   # secondary text
+_FG3 = "#5a5a6a"   # disabled / hint text
+
+# _P0  = "#1e1e1e"   # main background
+# _P1  = "#252526"   # panel background
+# _P2  = "#2d2d2d"   # secondary panel
+# _P3  = "#333333"   # card / container
+# _P4  = "#3c3c3c"   # toolbar
+# _P5  = "#464646"   # hover background
+# _P6  = "#555555"   # borders / separators
+
+# _G0  = "#3ea6ff"   # primary accent
+# _G1  = "#2b88d8"   # hover accent
+# _G2  = "#1f6fb2"   # active accent
+# _G3  = "#17558a"   # muted accent
+
+# _AM  = "#f5a623"   # warning
+# _RE  = "#e34850"   # error
+
+# _FG  = "#f0f0f0"   # primary text
+# _FG2 = "#b9b9b9"   # secondary text
+# _FG3 = "#7a7a7a"   # disabled / hint text
 
 _MONO_FONT = "'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace"
 _SANS_FONT = "'Inter', 'DM Sans', 'Outfit', 'Segoe UI', sans-serif"
@@ -117,7 +118,7 @@ QTabBar::tab {{
     font-size: 12px;
     font-weight: 500;
     color: {_FG3};
-    # border-radius: 0px 0px 0 0;
+    border-radius: 0px 0px 0 0;
     margin-right: 2px;
     min-width: 90px;
 }}
