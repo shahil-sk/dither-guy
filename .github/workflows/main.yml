@@ -1,10 +1,9 @@
 name: Build Dither Guy Executables
 
 on:
-  pull_request:
-    branches:
-      - 'master'
   push:
+    branches:
+    - 'refactor/modularize'
     tags:
       - 'v*'
   workflow_dispatch:
