@@ -12,7 +12,7 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,49 +41,37 @@ jobs:
             --hidden-import=PySide6.QtWidgets `
             --hidden-import=PIL `
             --hidden-import=PIL.Image `
-            --hidden-import=PIL.ImageTk `
             --hidden-import=PIL.ImageFilter `
             --hidden-import=PIL.ImageEnhance `
             --hidden-import=numpy `
             --hidden-import=cv2 `
             --hidden-import=shiboken6 `
+            --hidden-import=utils `
+            --hidden-import=utils.constants `
+            --hidden-import=utils.palettes `
+            --hidden-import=utils.matrices `
+            --hidden-import=utils.dither_kernels `
+            --hidden-import=utils.presets `
+            --hidden-import=utils.batch `
+            --hidden-import=utils.theme `
+            --hidden-import=utils.workers `
+            --hidden-import=utils.ui_widgets `
+            --hidden-import=utils.ui_control_panel `
+            --hidden-import=utils.ui_tabs `
+            --hidden-import=utils.ui_dialogs `
             --noconsole `
-            dither_guy.py
-
-      - name: Build DitherGuyVideo executable
-        run: |
-          pyinstaller --clean --noconfirm `
-            --name="DitherGuyVideo" `
-            --onefile `
-            --windowed `
-            --icon=app_icon.png `
-            --add-data="app_icon.png;." `
-            --hidden-import=PySide6.QtCore `
-            --hidden-import=PySide6.QtGui `
-            --hidden-import=PySide6.QtWidgets `
-            --hidden-import=PIL `
-            --hidden-import=PIL.Image `
-            --hidden-import=PIL.ImageTk `
-            --hidden-import=PIL.ImageFilter `
-            --hidden-import=PIL.ImageEnhance `
-            --hidden-import=numpy `
-            --hidden-import=cv2 `
-            --hidden-import=shiboken6 `
-            --noconsole `
-            dither_guy_video.py
+            main.py
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: DitherGuy-Windows
-          path: |
-            dist/DitherGuy.exe
-            dist/DitherGuyVideo.exe
+          path: dist/DitherGuy.exe
           retention-days: 30
 
   build-linux:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -109,7 +97,8 @@ jobs:
             libxcb-xkb1 \
             libegl1 \
             libfontconfig1 \
-            libdbus-1-3
+            libdbus-1-3 \
+            libfuse2
 
       - name: Install dependencies
         run: |
@@ -128,50 +117,104 @@ jobs:
             --hidden-import=PySide6.QtWidgets \
             --hidden-import=PIL \
             --hidden-import=PIL.Image \
-            --hidden-import=PIL.ImageTk \
             --hidden-import=PIL.ImageFilter \
             --hidden-import=PIL.ImageEnhance \
             --hidden-import=numpy \
             --hidden-import=cv2 \
             --hidden-import=shiboken6 \
-            dither_guy.py
+            --hidden-import=utils \
+            --hidden-import=utils.constants \
+            --hidden-import=utils.palettes \
+            --hidden-import=utils.matrices \
+            --hidden-import=utils.dither_kernels \
+            --hidden-import=utils.presets \
+            --hidden-import=utils.batch \
+            --hidden-import=utils.theme \
+            --hidden-import=utils.workers \
+            --hidden-import=utils.ui_widgets \
+            --hidden-import=utils.ui_control_panel \
+            --hidden-import=utils.ui_tabs \
+            --hidden-import=utils.ui_dialogs \
+            main.py
 
-      - name: Build DitherGuyVideo executable
+      - name: Make executable
+        run: chmod +x dist/DitherGuy
+
+      # ── AppImage ────────────────────────────────────────────────────────────
+
+      - name: Download appimagetool
         run: |
-          pyinstaller --clean --noconfirm \
-            --name="DitherGuyVideo" \
-            --onefile \
-            --windowed \
-            --hidden-import=PySide6.QtCore \
-            --hidden-import=PySide6.QtGui \
-            --hidden-import=PySide6.QtWidgets \
-            --hidden-import=PIL \
-            --hidden-import=PIL.Image \
-            --hidden-import=PIL.ImageTk \
-            --hidden-import=PIL.ImageFilter \
-            --hidden-import=PIL.ImageEnhance \
-            --hidden-import=numpy \
-            --hidden-import=cv2 \
-            --hidden-import=shiboken6 \
-            dither_guy_video.py
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -O appimagetool
+          chmod +x appimagetool
 
-      - name: Make executables executable
+      - name: Create AppDir structure
         run: |
-          chmod +x dist/DitherGuy
-          chmod +x dist/DitherGuyVideo
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
 
-      - name: Upload Linux artifacts
+          # Copy the PyInstaller binary
+          cp dist/DitherGuy AppDir/usr/bin/DitherGuy
+
+          # Desktop entry
+          cat > AppDir/usr/share/applications/ditherguy.desktop << 'EOF'
+          [Desktop Entry]
+          Name=DitherGuy
+          Exec=DitherGuy
+          Icon=ditherguy
+          Type=Application
+          Categories=Graphics;
+          Comment=Retro image dithering tool
+          EOF
+
+          # Copy icon — fall back to a plain green square if not present
+          if [ -f app_icon.png ]; then
+            cp app_icon.png AppDir/usr/share/icons/hicolor/256x256/apps/ditherguy.png
+          else
+            python3 -c "
+          from PIL import Image, ImageDraw
+          img = Image.new('RGB', (256, 256), (0, 255, 65))
+          img.save('AppDir/usr/share/icons/hicolor/256x256/apps/ditherguy.png')
+          "
+          fi
+
+          # Symlinks required by appimagetool at the AppDir root
+          ln -s usr/share/applications/ditherguy.desktop AppDir/ditherguy.desktop
+          ln -s usr/share/icons/hicolor/256x256/apps/ditherguy.png AppDir/ditherguy.png
+
+          # AppRun entrypoint
+          cat > AppDir/AppRun << 'EOF'
+          #!/bin/bash
+          SELF=$(readlink -f "$0")
+          HERE=$(dirname "$SELF")
+          exec "$HERE/usr/bin/DitherGuy" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+
+      - name: Build AppImage
+        run: |
+          ARCH=x86_64 ./appimagetool AppDir DitherGuy-x86_64.AppImage
+
+      # ── Upload artifacts ────────────────────────────────────────────────────
+
+      - name: Upload Linux binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: DitherGuy-Linux
-          path: |
-            dist/DitherGuy
-            dist/DitherGuyVideo
+          path: dist/DitherGuy
+          retention-days: 30
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DitherGuy-AppImage
+          path: DitherGuy-x86_64.AppImage
           retention-days: 30
 
   build-macos:
     runs-on: macos-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -198,63 +241,57 @@ jobs:
             --hidden-import=PySide6.QtWidgets \
             --hidden-import=PIL \
             --hidden-import=PIL.Image \
-            --hidden-import=PIL.ImageTk \
             --hidden-import=PIL.ImageFilter \
             --hidden-import=PIL.ImageEnhance \
             --hidden-import=numpy \
             --hidden-import=cv2 \
             --hidden-import=shiboken6 \
-            dither_guy.py
-
-      - name: Build DitherGuyVideo executable
-        run: |
-          pyinstaller --clean --noconfirm \
-            --name="DitherGuyVideo" \
-            --onefile \
-            --windowed \
-            --hidden-import=PySide6.QtCore \
-            --hidden-import=PySide6.QtGui \
-            --hidden-import=PySide6.QtWidgets \
-            --hidden-import=PIL \
-            --hidden-import=PIL.Image \
-            --hidden-import=PIL.ImageTk \
-            --hidden-import=PIL.ImageFilter \
-            --hidden-import=PIL.ImageEnhance \
-            --hidden-import=numpy \
-            --hidden-import=cv2 \
-            --hidden-import=shiboken6 \
-            dither_guy_video.py
+            --hidden-import=utils \
+            --hidden-import=utils.constants \
+            --hidden-import=utils.palettes \
+            --hidden-import=utils.matrices \
+            --hidden-import=utils.dither_kernels \
+            --hidden-import=utils.presets \
+            --hidden-import=utils.batch \
+            --hidden-import=utils.theme \
+            --hidden-import=utils.workers \
+            --hidden-import=utils.ui_widgets \
+            --hidden-import=utils.ui_control_panel \
+            --hidden-import=utils.ui_tabs \
+            --hidden-import=utils.ui_dialogs \
+            main.py
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: DitherGuy-macOS
-          path: |
-            dist/DitherGuy
-            dist/DitherGuyVideo
+          path: dist/DitherGuy
           retention-days: 30
 
   create-release:
     needs: [build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-    
+
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
+      - name: Rename platform binaries
+        run: |
+          mv artifacts/DitherGuy-Linux/DitherGuy   artifacts/DitherGuy-Linux/DitherGuy-linux
+          mv artifacts/DitherGuy-macOS/DitherGuy   artifacts/DitherGuy-macOS/DitherGuy-macos
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             artifacts/DitherGuy-Windows/DitherGuy.exe
-            artifacts/DitherGuy-Windows/DitherGuyVideo.exe
-            artifacts/DitherGuy-Linux/DitherGuy
-            artifacts/DitherGuy-Linux/DitherGuyVideo
-            artifacts/DitherGuy-macOS/DitherGuy
-            artifacts/DitherGuy-macOS/DitherGuyVideo
+            artifacts/DitherGuy-Linux/DitherGuy-linux
+            artifacts/DitherGuy-AppImage/DitherGuy-x86_64.AppImage
+            artifacts/DitherGuy-macOS/DitherGuy-macos
           draft: false
           prerelease: false
           generate_release_notes: true
