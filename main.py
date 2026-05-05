@@ -141,7 +141,7 @@ class DitherGuy(QMainWindow):
     def _actual(self):   self._active().actual();    self._update_zoom_lbl()
 
     def _update_zoom_lbl(self):
-        z = self._active().zoom_level()
+        z = self._active().zoom_level
         self.zoom_lbl.setText("fit" if z == 0 else f"{int(z * 100)}%")
 
     def closeEvent(self, event):
