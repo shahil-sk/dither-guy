@@ -35,19 +35,20 @@ class DitherWorker(QThread):
         self._pal  = palette_name
         self._cpal = custom_palette
         self._stop = False; self._mutex = QMutex()
-        # Lower thread priority so UI never stutters
         self.setPriority(QThread.Priority.LowPriority)
 
     def run(self):
         try:
-            t0 = time.perf_counter()
+            t0     = time.perf_counter()
             result = apply_dither(
                 self._img, self._ps, self._t, self._rc, self._m,
                 self._br, self._co, self._bl, self._sh,
                 self._gr, self._gi, self._prev,
                 self._pal, self._cpal)
             elapsed = time.perf_counter() - t0
-            self._mutex.lock(); ok = not self._stop; self._mutex.unlock()
+            self._mutex.lock()
+            ok = not self._stop
+            self._mutex.unlock()
             if ok:
                 self.finished.emit((result, elapsed, self._prev))
         except MemoryError:
@@ -68,26 +69,26 @@ def _process_frame_worker(args):
     return out.tobytes(), out.mode, out.size
 
 
-class VideoExportWorker(QThread):
-    frame_ready = Signal(object)
-    progress    = Signal(int, int)
-    finished    = Signal()
-    error       = Signal(str)
+class _VideoExportBase(QThread):
+    """Shared plumbing for VideoExportWorker and GifExportWorker."""
+    error = Signal(str)
 
     def __init__(self, video_path, save_path, pixel_size, threshold,
                  replace_color, method, brightness, contrast, blur, sharpen,
                  glow_radius=0, glow_intensity=0,
                  palette_name="B&W", custom_palette=None):
         super().__init__()
-        self._vp = video_path; self._sp = save_path; self._ps = pixel_size
-        self._t  = threshold;  self._rc = replace_color; self._m = method
-        self._br = brightness; self._co = contrast; self._bl = blur; self._sh = sharpen
-        self._gr = glow_radius; self._gi = glow_intensity
+        self._vp   = video_path;  self._sp  = save_path
+        self._ps   = pixel_size;  self._t   = threshold
+        self._rc   = replace_color; self._m = method
+        self._br   = brightness;  self._co  = contrast
+        self._bl   = blur;        self._sh  = sharpen
+        self._gr   = glow_radius; self._gi  = glow_intensity
         self._pal  = palette_name
         self._cpal = custom_palette
         self._stop = False; self._mutex = QMutex()
 
-    def _make_args(self, frames: list[Image.Image]):
+    def _make_args(self, frames: list[Image.Image]) -> list:
         ps, t, rc, m   = self._ps, self._t, self._rc, self._m
         br, co, bl, sh = self._br, self._co, self._bl, self._sh
         gr, gi         = self._gr, self._gi
@@ -96,6 +97,21 @@ class VideoExportWorker(QThread):
             (f.tobytes(), f.mode, f.size, ps, t, rc, m, br, co, bl, sh, gr, gi, pal, cpal)
             for f in frames
         ]
+
+    def _is_running(self) -> bool:
+        self._mutex.lock()
+        ok = not self._stop
+        self._mutex.unlock()
+        return ok
+
+    def stop(self):
+        self._mutex.lock(); self._stop = True; self._mutex.unlock()
+
+
+class VideoExportWorker(_VideoExportBase):
+    frame_ready = Signal(object)
+    progress    = Signal(int, int)
+    finished    = Signal()
 
     def run(self):
         if not _CV2:
@@ -109,53 +125,40 @@ class VideoExportWorker(QThread):
             fps   = cap.get(cv2.CAP_PROP_FPS) or 25.
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            # Use ThreadPoolExecutor (not ProcessPoolExecutor).
-            # ProcessPoolExecutor uses the 'spawn' start method on Windows,
-            # which re-runs the app entry point in each worker process and
-            # causes new GUI windows to open during export (issue #7).
-            # ThreadPoolExecutor is safe inside a QThread and avoids this.
+            # ThreadPoolExecutor is safe inside a QThread.
+            # ProcessPoolExecutor would re-spawn the GUI on Windows (issue #7).
             CHUNK = max(1, _VIDEO_WORKERS * 2)
             count = 0
             last_dithered = None
-            out_size = None  # determined from first dithered frame
             frames_buf: list[Image.Image] = []
 
             with ThreadPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
-                while True:
-                    self._mutex.lock(); ok = not self._stop; self._mutex.unlock()
-                    if not ok: break
-
+                while self._is_running():
                     frames_buf.clear()
                     for _ in range(CHUNK):
                         ret, frame = cap.read()
-                        if not ret: break
+                        if not ret:
+                            break
                         frames_buf.append(
                             Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
-                    if not frames_buf: break
-
-                    args = self._make_args(frames_buf)
-                    raw_results = list(executor.map(_process_frame_worker, args))
+                    if not frames_buf:
+                        break
 
                     dithered = [
                         Image.frombytes(mode, size, data)
-                        for data, mode, size in raw_results
+                        for data, mode, size in executor.map(
+                            _process_frame_worker, self._make_args(frames_buf))
                     ]
 
                     for dith in dithered:
-                        self._mutex.lock(); ok = not self._stop; self._mutex.unlock()
-                        if not ok: break
-
-                        # Initialise VideoWriter on the first dithered frame so
-                        # that the output dimensions match the actual output size
-                        # (which may differ from the source when pixel_size > 1).
+                        if not self._is_running():
+                            break
                         if out is None:
-                            out_size = (dith.width, dith.height)
                             out = cv2.VideoWriter(
                                 self._sp,
                                 cv2.VideoWriter_fourcc(*'mp4v'),
                                 fps,
-                                out_size)
-
+                                (dith.width, dith.height))
                         out.write(cv2.cvtColor(np.array(dith), cv2.COLOR_RGB2BGR))
                         count += 1
                         self.progress.emit(count, total)
@@ -171,29 +174,12 @@ class VideoExportWorker(QThread):
             if cap: cap.release()
             if out: out.release()
 
-    def stop(self):
-        self._mutex.lock(); self._stop = True; self._mutex.unlock()
 
-
-class GifExportWorker(QThread):
+class GifExportWorker(_VideoExportBase):
     """Export a dithered animated GIF from a video file."""
     frame_ready = Signal(object)
     progress    = Signal(int, int)
     finished    = Signal()
-    error       = Signal(str)
-
-    def __init__(self, video_path, save_path, pixel_size, threshold,
-                 replace_color, method, brightness, contrast, blur, sharpen,
-                 glow_radius=0, glow_intensity=0,
-                 palette_name="B&W", custom_palette=None):
-        super().__init__()
-        self._vp = video_path; self._sp = save_path; self._ps = pixel_size
-        self._t  = threshold;  self._rc = replace_color; self._m = method
-        self._br = brightness; self._co = contrast; self._bl = blur; self._sh = sharpen
-        self._gr = glow_radius; self._gi = glow_intensity
-        self._pal  = palette_name
-        self._cpal = custom_palette
-        self._stop = False; self._mutex = QMutex()
 
     def run(self):
         if not _CV2:
@@ -204,21 +190,18 @@ class GifExportWorker(QThread):
             if not cap.isOpened():
                 self.error.emit("Failed to open video."); return
 
-            fps   = cap.get(cv2.CAP_PROP_FPS) or 25.
-            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps         = cap.get(cv2.CAP_PROP_FPS) or 25.
+            total       = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             duration_ms = max(20, int(1000 / fps))
 
             frames: list[Image.Image] = []
             count = 0
 
-            while True:
-                self._mutex.lock(); ok = not self._stop; self._mutex.unlock()
-                if not ok: break
-
+            while self._is_running():
                 ret, frame = cap.read()
-                if not ret: break
-
-                pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                if not ret:
+                    break
+                pil      = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 dithered = apply_dither(
                     pil, self._ps, self._t, self._rc, self._m,
                     self._br, self._co, self._bl, self._sh,
@@ -230,7 +213,7 @@ class GifExportWorker(QThread):
                 if count % 10 == 0:
                     self.frame_ready.emit(dithered)
 
-            if frames and not self._stop:
+            if frames and self._is_running():
                 frames[0].save(
                     self._sp,
                     save_all=True,
@@ -244,6 +227,3 @@ class GifExportWorker(QThread):
             self.error.emit(str(exc))
         finally:
             if cap: cap.release()
-
-    def stop(self):
-        self._mutex.lock(); self._stop = True; self._mutex.unlock()
