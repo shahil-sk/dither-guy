@@ -23,27 +23,49 @@ import numpy as np
 # Backend detection
 # ---------------------------------------------------------------------------
 
-_xp         = np
-GPU_BACKEND: str = "cpu"
+# --- SAFE BACKEND DETECTION ---
 
-try:
-    import cupy as cp               # type: ignore
-    cp.array([0])                   # force device init — raises if no CUDA
-    _xp         = cp
-    GPU_BACKEND = "cuda"
-except Exception:
-    cp = None
-
-if GPU_BACKEND == "cpu":
+def _try_cuda():
     try:
-        import pyopencl as cl               # type: ignore
-        import pyopencl.array as cl_array   # type: ignore
-        _ctx   = cl.create_some_context(interactive=False)
-        _queue = cl.CommandQueue(_ctx)
-        GPU_BACKEND = "opencl"
+        import cupy as cp
+        # lightweight check (no kernel compile)
+        _ = cp.cuda.runtime.getDeviceCount()
+        return cp
     except Exception:
-        cl = None
-        _ctx = _queue = None
+        return None
+
+
+def _try_opencl():
+    try:
+        import pyopencl as cl
+        platforms = cl.get_platforms()
+        if not platforms:
+            return None, None
+        ctx = cl.Context(dev_type=cl.device_type.ALL)
+        queue = cl.CommandQueue(ctx)
+        return cl, (ctx, queue)
+    except Exception:
+        return None, None
+
+
+cp = _try_cuda()
+cl, cl_ctx = _try_opencl()
+
+if cp:
+    GPU_BACKEND = "cuda"
+    _xp = cp
+elif cl:
+    GPU_BACKEND = "opencl"
+    _xp = np  # keep numpy-like interface (avoid cl array mess)
+else:
+    GPU_BACKEND = "cpu"
+    _xp = np
+
+# unpack opencl context/queue if available
+if cl_ctx is not None:
+    _ctx, _queue = cl_ctx
+else:
+    _ctx = _queue = None
 
 # ---------------------------------------------------------------------------
 # Transfer helpers
