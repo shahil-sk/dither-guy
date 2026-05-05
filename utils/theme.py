@@ -1,29 +1,30 @@
 from __future__ import annotations
 
-# ── Palette ───────────────────────────────────────────────────────────────────
+# ── Palette (AMOLED) ──────────────────────────────────────────────────────────
 # Surface layers (darkest → lightest elevation)
-_P0 = "#0f0f10"  # deepest background
-_P1 = "#161618"  # main background
-_P2 = "#1c1c1f"  # panel / sidebar
-_P3 = "#222226"  # card / container
-_P4 = "#2a2a2e"  # toolbar / elevated surface
-_P5 = "#35353b"  # borders (normal)
-_P6 = "#48484f"  # borders (hover)
 
-# Accent — electric violet-blue
-_G0 = "#7c6dff"  # primary accent
-_G1 = "#6458e8"  # hover
-_G2 = "#4e44cc"  # active / pressed
-_G3 = "#312d80"  # muted tint fills
+_P0 = "#000000"  # true black (OLED off)
+_P1 = "#050506"  # near-black base (prevents harsh contrast fatigue)
+_P2 = "#0b0b0d"  # panels
+_P3 = "#121214"  # cards
+_P4 = "#1a1a1f"  # elevated surfaces
+_P5 = "#26262c"  # borders (normal)
+_P6 = "#34343b"  # borders (hover)
+
+# Accent — keep your violet, slightly tuned for contrast
+_G0 = "#8a7dff"  # primary (boosted visibility on black)
+_G1 = "#6f63f0"  # hover
+_G2 = "#564ccc"  # active
+_G3 = "#2a275f"  # muted fills
 
 # Semantic
-_AM = "#f5a623"  # warning
-_RE = "#ff4f5e"  # error
+_AM = "#ffb020"  # warning (brighter for AMOLED contrast)
+_RE = "#ff5c6c"  # error (slightly lifted)
 
 # Text
-_FG  = "#f2f2f5"  # primary
-_FG2 = "#a0a0b0"  # secondary
-_FG3 = "#5a5a6a"  # disabled / hint
+_FG  = "#ffffff"  # pure white (crisp on OLED)
+_FG2 = "#b0b0c0"  # secondary
+_FG3 = "#6a6a78"  # disabled / hint
 
 # Fonts
 _MONO_FONT = "'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace"
