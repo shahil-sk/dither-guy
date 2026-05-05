@@ -61,9 +61,10 @@ class DitherWorker(QThread):
 
 def _process_frame_worker(args):
     """Top-level worker function for parallel frame dithering."""
-    frame_bytes, mode, size, ps, t, rc, m, br, co, bl, sh, gr, gi = args
+    frame_bytes, mode, size, ps, t, rc, m, br, co, bl, sh, gr, gi, pal, cpal = args
     img = Image.frombytes(mode, size, frame_bytes)
-    out = apply_dither(img, ps, t, rc, m, br, co, bl, sh, gr, gi)
+    out = apply_dither(img, ps, t, rc, m, br, co, bl, sh, gr, gi,
+                       palette_name=pal, custom_palette=cpal)
     return out.tobytes(), out.mode, out.size
 
 
@@ -75,20 +76,24 @@ class VideoExportWorker(QThread):
 
     def __init__(self, video_path, save_path, pixel_size, threshold,
                  replace_color, method, brightness, contrast, blur, sharpen,
-                 glow_radius=0, glow_intensity=0):
+                 glow_radius=0, glow_intensity=0,
+                 palette_name="B&W", custom_palette=None):
         super().__init__()
         self._vp = video_path; self._sp = save_path; self._ps = pixel_size
         self._t  = threshold;  self._rc = replace_color; self._m = method
         self._br = brightness; self._co = contrast; self._bl = blur; self._sh = sharpen
         self._gr = glow_radius; self._gi = glow_intensity
+        self._pal  = palette_name
+        self._cpal = custom_palette
         self._stop = False; self._mutex = QMutex()
 
     def _make_args(self, frames: list[Image.Image]):
         ps, t, rc, m   = self._ps, self._t, self._rc, self._m
         br, co, bl, sh = self._br, self._co, self._bl, self._sh
         gr, gi         = self._gr, self._gi
+        pal, cpal      = self._pal, self._cpal
         return [
-            (f.tobytes(), f.mode, f.size, ps, t, rc, m, br, co, bl, sh, gr, gi)
+            (f.tobytes(), f.mode, f.size, ps, t, rc, m, br, co, bl, sh, gr, gi, pal, cpal)
             for f in frames
         ]
 
@@ -165,6 +170,80 @@ class VideoExportWorker(QThread):
         finally:
             if cap: cap.release()
             if out: out.release()
+
+    def stop(self):
+        self._mutex.lock(); self._stop = True; self._mutex.unlock()
+
+
+class GifExportWorker(QThread):
+    """Export a dithered animated GIF from a video file."""
+    frame_ready = Signal(object)
+    progress    = Signal(int, int)
+    finished    = Signal()
+    error       = Signal(str)
+
+    def __init__(self, video_path, save_path, pixel_size, threshold,
+                 replace_color, method, brightness, contrast, blur, sharpen,
+                 glow_radius=0, glow_intensity=0,
+                 palette_name="B&W", custom_palette=None):
+        super().__init__()
+        self._vp = video_path; self._sp = save_path; self._ps = pixel_size
+        self._t  = threshold;  self._rc = replace_color; self._m = method
+        self._br = brightness; self._co = contrast; self._bl = blur; self._sh = sharpen
+        self._gr = glow_radius; self._gi = glow_intensity
+        self._pal  = palette_name
+        self._cpal = custom_palette
+        self._stop = False; self._mutex = QMutex()
+
+    def run(self):
+        if not _CV2:
+            self.error.emit("opencv-python not installed."); return
+        cap = None
+        try:
+            cap = cv2.VideoCapture(self._vp)
+            if not cap.isOpened():
+                self.error.emit("Failed to open video."); return
+
+            fps   = cap.get(cv2.CAP_PROP_FPS) or 25.
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration_ms = max(20, int(1000 / fps))
+
+            frames: list[Image.Image] = []
+            count = 0
+
+            while True:
+                self._mutex.lock(); ok = not self._stop; self._mutex.unlock()
+                if not ok: break
+
+                ret, frame = cap.read()
+                if not ret: break
+
+                pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                dithered = apply_dither(
+                    pil, self._ps, self._t, self._rc, self._m,
+                    self._br, self._co, self._bl, self._sh,
+                    self._gr, self._gi,
+                    palette_name=self._pal, custom_palette=self._cpal)
+                frames.append(dithered.convert("P", palette=Image.ADAPTIVE, colors=256))
+                count += 1
+                self.progress.emit(count, total)
+                if count % 10 == 0:
+                    self.frame_ready.emit(dithered)
+
+            if frames and not self._stop:
+                frames[0].save(
+                    self._sp,
+                    save_all=True,
+                    append_images=frames[1:],
+                    loop=0,
+                    duration=duration_ms,
+                    optimize=False,
+                )
+            self.finished.emit()
+        except Exception as exc:
+            self.error.emit(str(exc))
+        finally:
+            if cap: cap.release()
 
     def stop(self):
         self._mutex.lock(); self._stop = True; self._mutex.unlock()

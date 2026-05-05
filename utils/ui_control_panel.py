@@ -82,7 +82,6 @@ class ControlPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.current_color = (255, 255, 255)
-        self._dragging_slider = False
         self._custom_palette: list[tuple] = []
         self._build()
 
@@ -190,19 +189,13 @@ class ControlPanel(QWidget):
             "letter-spacing:2px; padding:10px 0 4px 0;")
         layout.addWidget(ver)
 
-        # Wire sliders
-        # On Windows, emitting params_changed_preview on every valueChanged
-        # tick while the mouse button is held floods the worker queue and
-        # causes stale finished signals to snap the canvas back to an earlier
-        # state once the drag ends (issue #8).  We therefore only emit the
-        # preview signal when the user is NOT actively dragging — the label
-        # still updates every tick for responsive number feedback, and a full
-        # render is triggered on sliderReleased via params_changed.
+        # Wire sliders — emit params_changed_preview on every tick for live
+        # canvas updates while dragging. Stale worker results are now safely
+        # discarded by the identity guard in ImageTab._on_done (ui_tabs.py).
         def _connect(sl, lbl, fmt):
-            sl.sliderPressed.connect(lambda: setattr(self, '_dragging_slider', True))
-            sl.sliderReleased.connect(self._on_slider_released)
             sl.valueChanged.connect(lambda v, l=lbl, f=fmt: l.setText(f.format(v=v)))
-            sl.valueChanged.connect(self._on_slider_value_changed)
+            sl.valueChanged.connect(lambda _: self.params_changed_preview.emit())
+            sl.sliderReleased.connect(self.params_changed.emit)
 
         _connect(self.pixel_sl,   self._pix_val, "{v}")
         _connect(self.thresh_sl,  self._thr_val, "{v}")
@@ -212,18 +205,6 @@ class ControlPanel(QWidget):
         _connect(self.sharp_sl,   self._sh_val,  "{v}")
         _connect(self.glow_r_sl,  self._gr_val,  "{v}")
         _connect(self.glow_i_sl,  self._gi_val,  "{v}%")
-
-    def _on_slider_value_changed(self):
-        # Only fire a live preview when the value changes via keyboard or
-        # programmatic setValue — not while the mouse button is held down.
-        # While dragging, the label already updated above; the full render
-        # will fire on sliderReleased -> params_changed.
-        if not self._dragging_slider:
-            self.params_changed_preview.emit()
-
-    def _on_slider_released(self):
-        self._dragging_slider = False
-        self.params_changed.emit()
 
     def _reset(self):
         for sl, v in [(self.bright_sl, 100), (self.contr_sl, 100), (self.blur_sl, 0),
