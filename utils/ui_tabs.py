@@ -629,6 +629,9 @@ class VideoTab(QWidget):
         self.status_message.emit(f"exporting {cur}/{total} frames")
 
     def _on_export_done(self) -> None:
+        if self.export_worker is None:
+            return                          # guard: ignore duplicate signal fires
+        self.export_worker = None           # clear immediately so duplicates are blocked
         self.progress_bar.setVisible(False)
         self.status_message.emit("export complete")
         QMessageBox.information(self, "Done", "Video exported.")
