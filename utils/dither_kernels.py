@@ -66,7 +66,7 @@ def apply_glow(img: Image.Image, radius: float, intensity: float) -> Image.Image
 # Palette helpers
 # ---------------------------------------------------------------------------
 
-# Precomputed sRGB → XYZ matrix (shared with gpu_kernels)
+# Precomputed sRGB -> XYZ matrix (shared with gpu_kernels)
 _SRGB_TO_XYZ = np.array([
     [0.4124, 0.3576, 0.1805],
     [0.2126, 0.7152, 0.0722],
@@ -80,14 +80,14 @@ _LAB_KAPPA = np.float32(903.3)
 def _rgb_to_lab_batch(rgb: np.ndarray) -> np.ndarray:
     """Vectorised sRGB -> CIE-L*a*b* for array (...,3) float32 [0-255] on CPU.
 
-    Uses a fused matrix multiply for the linear-RGB → XYZ step.
+    Uses a fused matrix multiply for the linear-RGB -> XYZ step.
     """
     r    = rgb.astype(np.float32) / np.float32(255.0)
     mask = r > np.float32(0.04045)
     r    = np.where(mask,
                     ((r + np.float32(0.055)) / np.float32(1.055)) ** np.float32(2.4),
                     r / np.float32(12.92))
-    # (..., 3) @ (3, 3)^T — one BLAS call instead of 3 dot products
+    # (..., 3) @ (3, 3)^T -- one BLAS call instead of 3 dot products
     orig_shape = r.shape
     flat = r.reshape(-1, 3) if r.ndim > 2 else r
     xyz  = (flat @ _SRGB_TO_XYZ.T) * _XYZ_SCALE
@@ -103,7 +103,7 @@ def _rgb_to_lab_batch(rgb: np.ndarray) -> np.ndarray:
 
 _rgb_to_lab = _rgb_to_lab_batch
 
-# Palette LAB cache — keyed by content hash so the same palette colours
+# Palette LAB cache -- keyed by content hash so the same palette colours
 # always hit the cache regardless of which array object holds them.
 _PAL_LAB_CACHE: dict[int, np.ndarray] = {}
 
@@ -127,7 +127,7 @@ def _should_use_gpu(arr: np.ndarray) -> bool:
 
 def _nearest_palette_indices(pixels: np.ndarray, pal: np.ndarray,
                               pal_lab: np.ndarray) -> np.ndarray:
-    """Nearest palette index per pixel — GPU only for CUDA + large images, else CPU einsum."""
+    """Nearest palette index per pixel -- GPU only for CUDA + large images, else CPU einsum."""
     if _should_use_gpu(pixels):
         return gpu_palette_nearest(pixels, pal_lab)
     pix_lab = _rgb_to_lab_batch(pixels)
@@ -137,7 +137,7 @@ def _nearest_palette_indices(pixels: np.ndarray, pal: np.ndarray,
 
 
 # ---------------------------------------------------------------------------
-# Error-diffusion coefficient tables (dy, dx, weight) — weights pre-divided
+# Error-diffusion coefficient tables (dy, dx, weight) -- weights pre-divided
 # ---------------------------------------------------------------------------
 
 _COEFF_TABLES: dict[str, list[tuple]] = {
@@ -162,20 +162,20 @@ _COEFF_TABLES: dict[str, list[tuple]] = {
 
 
 # ---------------------------------------------------------------------------
-# Core colour error-diffusion — fully vectorised, zero Python pixel loop
+# Core colour error-diffusion -- fully vectorised, zero Python pixel loop
 # ---------------------------------------------------------------------------
 
 def _palette_ed_vectorised(
     arr: np.ndarray,          # float32 (H, W, 3) in [0..255]
     pal: np.ndarray,          # float32 (K, 3)
     pal_lab: np.ndarray,      # float32 (K, 3) L*a*b*
-    coeffs: list[tuple],      # [(dy, dx, w), ...]  — weights already divided
+    coeffs: list[tuple],      # [(dy, dx, w), ...]  -- weights already divided
 ) -> np.ndarray:
     """Row-by-row vectorised colour error diffusion.
 
     For each row all W pixels are snapped to the nearest palette colour in one
     batched call (GPU or CPU einsum).  Error is spread to neighbouring rows
-    using plain slice assignment — no np.add.at, no index arrays.
+    using plain slice assignment -- no np.add.at, no index arrays.
     """
     h, w, _ = arr.shape
     out = arr.copy()
@@ -211,7 +211,7 @@ def _palette_ed_vectorised(
 def palette_dither(image: Image.Image, palette: list[tuple],
                    method: str = "Floyd-Steinberg",
                    threshold: float = 128.0) -> Image.Image:
-    """High-quality colour error-diffusion dither — fully vectorised."""
+    """High-quality colour error-diffusion dither -- fully vectorised."""
     arr     = np.array(image.convert("RGB"), dtype=np.float32)
     pal     = np.asarray(palette, dtype=np.float32)
     pal_lab = _get_pal_lab(pal)
@@ -222,10 +222,544 @@ def palette_dither(image: Image.Image, palette: list[tuple],
 
 def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image:
     """Ordered dither + GPU palette snap. Kept for reference / future debug use.
-    Not called by apply_dither — preview and final both use palette_dither."""
+    Not called by apply_dither -- preview and final both use palette_dither."""
     arr  = np.array(image.convert("RGB"), dtype=np.float32)
     pal  = np.asarray(palette, dtype=np.float32)
     h, w = arr.shape[:2]
 
     bayer = tile(_BAYER_4x4, h, w)
-    noise = (bayer - 128.0) * 0.
+    noise = (bayer - 128.0) * 0.3
+    noisy = np.clip(arr + noise[:, :, np.newaxis], 0, 255)
+
+    pal_lab = _get_pal_lab(pal)
+    flat    = noisy.reshape(-1, 3)
+    idxs    = _nearest_palette_indices(flat, pal, pal_lab)
+    result  = pal[idxs].reshape(h, w, 3)
+    return Image.fromarray(result.astype(np.uint8), mode="RGB")
+
+
+# ---------------------------------------------------------------------------
+# B&W error-diffusion kernels (JIT / NumPy fallbacks)
+# ---------------------------------------------------------------------------
+
+if _NUMBA:
+    @njit(cache=True, fastmath=True)
+    def _fs_core(a, t):
+        h, w = a.shape
+        for y in range(h):
+            for x in range(w):
+                old = a[y, x]; new = 255.0 if old > t else 0.0; e = old - new
+                a[y, x] = new
+                if x+1 < w: a[y, x+1] += e * 0.4375
+                if y+1 < h:
+                    if x > 0: a[y+1, x-1] += e * 0.1875
+                    a[y+1, x] += e * 0.3125
+                    if x+1 < w: a[y+1, x+1] += e * 0.0625
+        return a
+
+    @njit(cache=True, fastmath=True)
+    def _atkinson_core(a, t):
+        h, w = a.shape
+        for y in range(h):
+            for x in range(w):
+                old = a[y, x]; new = 255.0 if old > t else 0.0; e = (old - new) * 0.125
+                a[y, x] = new
+                if x+1 < w: a[y, x+1] += e
+                if x+2 < w: a[y, x+2] += e
+                if y+1 < h:
+                    if x > 0: a[y+1, x-1] += e
+                    a[y+1, x] += e
+                    if x+1 < w: a[y+1, x+1] += e
+                if y+2 < h: a[y+2, x] += e
+        return a
+
+    @njit(cache=True, fastmath=True)
+    def _jjn_core(a, t):
+        h, w = a.shape; d = 48.0
+        for y in range(h):
+            for x in range(w):
+                old = a[y, x]; new = 255.0 if old > t else 0.0; e = old - new
+                a[y, x] = new
+                if x+1<w: a[y,x+1]+=e*7/d
+                if x+2<w: a[y,x+2]+=e*5/d
+                if y+1<h:
+                    if x>1: a[y+1,x-2]+=e*3/d
+                    if x>0: a[y+1,x-1]+=e*5/d
+                    a[y+1,x]+=e*7/d
+                    if x+1<w: a[y+1,x+1]+=e*5/d
+                    if x+2<w: a[y+1,x+2]+=e*3/d
+                if y+2<h:
+                    if x>1: a[y+2,x-2]+=e*1/d
+                    if x>0: a[y+2,x-1]+=e*3/d
+                    a[y+2,x]+=e*5/d
+                    if x+1<w: a[y+2,x+1]+=e*3/d
+                    if x+2<w: a[y+2,x+2]+=e*1/d
+        return a
+
+    @njit(cache=True, fastmath=True)
+    def _stucki_core(a, t):
+        h, w = a.shape; d = 42.0
+        for y in range(h):
+            for x in range(w):
+                old = a[y, x]; new = 255.0 if old > t else 0.0; e = old - new
+                a[y, x] = new
+                if x+1<w: a[y,x+1]+=e*8/d
+                if x+2<w: a[y,x+2]+=e*4/d
+                if y+1<h:
+                    if x>1: a[y+1,x-2]+=e*2/d
+                    if x>0: a[y+1,x-1]+=e*4/d
+                    a[y+1,x]+=e*8/d
+                    if x+1<w: a[y+1,x+1]+=e*4/d
+                    if x+2<w: a[y+1,x+2]+=e*2/d
+                if y+2<h:
+                    if x>1: a[y+2,x-2]+=e*1/d
+                    if x>0: a[y+2,x-1]+=e*2/d
+                    a[y+2,x]+=e*4/d
+                    if x+1<w: a[y+2,x+1]+=e*2/d
+                    if x+2<w: a[y+2,x+2]+=e*1/d
+        return a
+
+    @njit(cache=True, fastmath=True)
+    def _sierra_core(a, t):
+        h, w = a.shape; d = 32.0
+        for y in range(h):
+            for x in range(w):
+                old = a[y, x]; new = 255.0 if old > t else 0.0; e = old - new
+                a[y, x] = new
+                if x+1<w: a[y,x+1]+=e*5/d
+                if x+2<w: a[y,x+2]+=e*3/d
+                if y+1<h:
+                    if x>1: a[y+1,x-2]+=e*2/d
+                    if x>0: a[y+1,x-1]+=e*4/d
+                    a[y+1,x]+=e*5/d
+                    if x+1<w: a[y+1,x+1]+=e*4/d
+                    if x+2<w: a[y+1,x+2]+=e*2/d
+                if y+2<h:
+                    if x>0: a[y+2,x-1]+=e*2/d
+                    a[y+2,x]+=e*3/d
+                    if x+1<w: a[y+2,x+1]+=e*2/d
+        return a
+
+    @njit(cache=True, fastmath=True)
+    def _sierra_lite_core(a, t):
+        h, w = a.shape
+        for y in range(h):
+            for x in range(w):
+                old = a[y, x]; new = 255.0 if old > t else 0.0; e = old - new
+                a[y, x] = new
+                if x+1<w: a[y,x+1]+=e*0.5
+                if y+1<h:
+                    if x>0: a[y+1,x-1]+=e*0.25
+                    a[y+1,x]+=e*0.25
+        return a
+
+    @njit(cache=True, fastmath=True)
+    def _nakano_core(a, t):
+        h, w = a.shape
+        for y in range(h):
+            for x in range(w):
+                old = a[y, x]; new = 255.0 if old > t else 0.0; e = old - new
+                a[y, x] = new
+                if x+1<w: a[y,x+1]+=e*(8/24)
+                if y+1<h:
+                    if x>0: a[y+1,x-1]+=e*(4/24)
+                    a[y+1,x]+=e*(4/24)
+                    if x+1<w: a[y+1,x+1]+=e*(4/24)
+                if y+2<h:
+                    if x>1: a[y+2,x-2]+=e*(1/24)
+                    if x>0: a[y+2,x-1]+=e*(2/24)
+                    a[y+2,x]+=e*(1/24)
+        return a
+
+    def _wrap_jit(fn):
+        def inner(a: np.ndarray, t: float) -> np.ndarray:
+            a = a.astype(np.float64)
+            np.clip(a, 0, 255, out=a)
+            result = fn(a, float(t))
+            return np.clip(result, 0, 255).astype(np.uint8)
+        return inner
+
+    _fs_vectorised          = _wrap_jit(_fs_core)
+    _atkinson_vectorised    = _wrap_jit(_atkinson_core)
+    _sierra_vectorised      = _wrap_jit(_sierra_core)
+    _sierra_lite_vectorised = _wrap_jit(_sierra_lite_core)
+    _nakano_vectorised      = _wrap_jit(_nakano_core)
+    _jjn_vectorised         = _wrap_jit(_jjn_core)
+    _stucki_vectorised      = _wrap_jit(_stucki_core)
+
+else:
+    # NumPy-only fallbacks -- row-at-a-time slice assignment, no Python pixel loop
+    def _fs_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+        h, w = a.shape
+        for y in range(h):
+            row = a[y].copy(); nw = np.where(row > t, 255., 0.); e = row - nw
+            a[y, 1:] = np.clip(a[y, 1:] + e[:-1] * 0.4375, 0, 255)
+            if y+1 < h:
+                a[y+1, :-1] = np.clip(a[y+1, :-1] + e[1:] * 0.1875, 0, 255)
+                a[y+1]      = np.clip(a[y+1]       + e    * 0.3125,  0, 255)
+                if w > 1: a[y+1, 1:] = np.clip(a[y+1, 1:] + e[:-1] * 0.0625, 0, 255)
+            a[y] = nw
+        return np.clip(a, 0, 255).astype(np.uint8)
+
+    def _atkinson_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+        h, w = a.shape
+        for y in range(h):
+            row = a[y].copy(); nw = np.where(row > t, 255., 0.); e = (row - nw) * 0.125
+            a[y, 1:] = np.clip(a[y, 1:] + e[:-1], 0, 255)
+            if w > 2: a[y, 2:] = np.clip(a[y, 2:] + e[:-2], 0, 255)
+            if y+1 < h:
+                a[y+1, :-1] = np.clip(a[y+1, :-1] + e[1:], 0, 255)
+                a[y+1]      = np.clip(a[y+1]       + e,    0, 255)
+                if w > 1: a[y+1, 1:] = np.clip(a[y+1, 1:] + e[:-1], 0, 255)
+            if y+2 < h: a[y+2] = np.clip(a[y+2] + e, 0, 255)
+            a[y] = nw
+        return np.clip(a, 0, 255).astype(np.uint8)
+
+    def _sierra_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+        h, w = a.shape; d = 32.
+        for y in range(h):
+            row = a[y].copy(); nw = np.where(row > t, 255., 0.); e = row - nw
+            if w > 1: a[y, 1:]    = np.clip(a[y, 1:]    + e[:-1] * (5/d), 0, 255)
+            if w > 2: a[y, 2:]    = np.clip(a[y, 2:]    + e[:-2] * (3/d), 0, 255)
+            if y+1 < h:
+                if w > 2: a[y+1, :-2] = np.clip(a[y+1, :-2] + e[2:] * (2/d), 0, 255)
+                if w > 1: a[y+1, :-1] = np.clip(a[y+1, :-1] + e[1:] * (4/d), 0, 255)
+                a[y+1]             = np.clip(a[y+1]           + e     * (5/d), 0, 255)
+                if w > 1: a[y+1, 1:]  = np.clip(a[y+1, 1:]  + e[:-1] * (4/d), 0, 255)
+                if w > 2: a[y+1, 2:]  = np.clip(a[y+1, 2:]  + e[:-2] * (2/d), 0, 255)
+            if y+2 < h:
+                if w > 1: a[y+2, :-1] = np.clip(a[y+2, :-1] + e[1:] * (2/d), 0, 255)
+                a[y+2]             = np.clip(a[y+2]           + e     * (3/d), 0, 255)
+                if w > 1: a[y+2, 1:]  = np.clip(a[y+2, 1:]  + e[:-1] * (2/d), 0, 255)
+            a[y] = nw
+        return np.clip(a, 0, 255).astype(np.uint8)
+
+    def _sierra_lite_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+        h, w = a.shape
+        for y in range(h):
+            row = a[y].copy(); nw = np.where(row > t, 255., 0.); e = row - nw
+            a[y, 1:] = np.clip(a[y, 1:] + e[:-1] * 0.5, 0, 255)
+            if y+1 < h:
+                if w > 1: a[y+1, :-1] = np.clip(a[y+1, :-1] + e[1:] * 0.25, 0, 255)
+                a[y+1] = np.clip(a[y+1] + e * 0.25, 0, 255)
+            a[y] = nw
+        return np.clip(a, 0, 255).astype(np.uint8)
+
+    def _nakano_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+        h, w = a.shape
+        _w83 = 8/24; _w43 = 4/24; _w13 = 1/24; _w23 = 2/24
+        for y in range(h):
+            row = a[y].copy(); nw = np.where(row > t, 255., 0.); e = row - nw
+            a[y, 1:] = np.clip(a[y, 1:] + e[:-1] * _w83, 0, 255)
+            if y+1 < h:
+                if w > 1: a[y+1, :-1] = np.clip(a[y+1, :-1] + e[1:] * _w43, 0, 255)
+                a[y+1]             = np.clip(a[y+1]           + e     * _w43, 0, 255)
+                if w > 1: a[y+1, 1:]  = np.clip(a[y+1, 1:]  + e[:-1] * _w43, 0, 255)
+            if y+2 < h:
+                if w > 2: a[y+2, :-2] = np.clip(a[y+2, :-2] + e[2:] * _w13, 0, 255)
+                if w > 1: a[y+2, :-1] = np.clip(a[y+2, :-1] + e[1:] * _w23, 0, 255)
+                a[y+2]             = np.clip(a[y+2]           + e     * _w13, 0, 255)
+            a[y] = nw
+        return np.clip(a, 0, 255).astype(np.uint8)
+
+    def _jjn_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+        h, w = a.shape; d = 48.
+        _w7 = 7/d; _w5 = 5/d; _w3 = 3/d; _w1 = 1/d
+        for y in range(h):
+            row = a[y].copy(); nw = np.where(row > t, 255., 0.); e = row - nw
+            if w > 1: a[y, 1:]    = np.clip(a[y, 1:]    + e[:-1] * _w7, 0, 255)
+            if w > 2: a[y, 2:]    = np.clip(a[y, 2:]    + e[:-2] * _w5, 0, 255)
+            if y+1 < h:
+                if w > 2: a[y+1, :-2] = np.clip(a[y+1, :-2] + e[2:] * _w3, 0, 255)
+                if w > 1: a[y+1, :-1] = np.clip(a[y+1, :-1] + e[1:] * _w5, 0, 255)
+                a[y+1]             = np.clip(a[y+1]           + e     * _w7, 0, 255)
+                if w > 1: a[y+1, 1:]  = np.clip(a[y+1, 1:]  + e[:-1] * _w5, 0, 255)
+                if w > 2: a[y+1, 2:]  = np.clip(a[y+1, 2:]  + e[:-2] * _w3, 0, 255)
+            if y+2 < h:
+                if w > 2: a[y+2, :-2] = np.clip(a[y+2, :-2] + e[2:] * _w1, 0, 255)
+                if w > 1: a[y+2, :-1] = np.clip(a[y+2, :-1] + e[1:] * _w3, 0, 255)
+                a[y+2]             = np.clip(a[y+2]           + e     * _w5, 0, 255)
+                if w > 1: a[y+2, 1:]  = np.clip(a[y+2, 1:]  + e[:-1] * _w3, 0, 255)
+                if w > 2: a[y+2, 2:]  = np.clip(a[y+2, 2:]  + e[:-2] * _w1, 0, 255)
+            a[y] = nw
+        return np.clip(a, 0, 255).astype(np.uint8)
+
+    def _stucki_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+        h, w = a.shape; d = 42.
+        _w8 = 8/d; _w4 = 4/d; _w2 = 2/d; _w1 = 1/d
+        for y in range(h):
+            row = a[y].copy(); nw = np.where(row > t, 255., 0.); e = row - nw
+            if w > 1: a[y, 1:]    = np.clip(a[y, 1:]    + e[:-1] * _w8, 0, 255)
+            if w > 2: a[y, 2:]    = np.clip(a[y, 2:]    + e[:-2] * _w4, 0, 255)
+            if y+1 < h:
+                if w > 2: a[y+1, :-2] = np.clip(a[y+1, :-2] + e[2:] * _w2, 0, 255)
+                if w > 1: a[y+1, :-1] = np.clip(a[y+1, :-1] + e[1:] * _w4, 0, 255)
+                a[y+1]             = np.clip(a[y+1]           + e     * _w8, 0, 255)
+                if w > 1: a[y+1, 1:]  = np.clip(a[y+1, 1:]  + e[:-1] * _w4, 0, 255)
+                if w > 2: a[y+1, 2:]  = np.clip(a[y+1, 2:]  + e[:-2] * _w2, 0, 255)
+            if y+2 < h:
+                if w > 2: a[y+2, :-2] = np.clip(a[y+2, :-2] + e[2:] * _w1, 0, 255)
+                if w > 1: a[y+2, :-1] = np.clip(a[y+2, :-1] + e[1:] * _w2, 0, 255)
+                a[y+2]             = np.clip(a[y+2]           + e     * _w4, 0, 255)
+                if w > 1: a[y+2, 1:]  = np.clip(a[y+2, 1:]  + e[:-1] * _w2, 0, 255)
+                if w > 2: a[y+2, 2:]  = np.clip(a[y+2, 2:]  + e[:-2] * _w1, 0, 255)
+            a[y] = nw
+        return np.clip(a, 0, 255).astype(np.uint8)
+
+
+def _variable_error_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+    h, w = a.shape
+    for y in range(h - 1):
+        row = a[y, 1:w-1].copy(); nw = np.where(row > t, 255., 0.)
+        e = row - nw; f = row / 255.
+        a[y, 2:w]     = np.clip(a[y, 2:w]     + e * 7. * f        / 16., 0, 255)
+        a[y+1, 0:w-2] = np.clip(a[y+1, 0:w-2] + e * 3. * (1. - f) / 16., 0, 255)
+        a[y+1, 1:w-1] = np.clip(a[y+1, 1:w-1] + e * 5.             / 16., 0, 255)
+        a[y+1, 2:w]   = np.clip(a[y+1, 2:w]   + e                  / 16., 0, 255)
+        a[y, 1:w-1] = nw
+    return np.clip(a, 0, 255).astype(np.uint8)
+
+
+def _burkes_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+    h, w = a.shape; d = 32.0
+    _w8 = 8/d; _w4 = 4/d; _w2 = 2/d
+    for y in range(h):
+        row = a[y].copy(); nw = np.where(row > t, 255., 0.); e = row - nw
+        if w > 1: a[y, 1:]    = np.clip(a[y, 1:]    + e[:-1] * _w8, 0, 255)
+        if w > 2: a[y, 2:]    = np.clip(a[y, 2:]    + e[:-2] * _w4, 0, 255)
+        if y+1 < h:
+            if w > 2: a[y+1, :-2] = np.clip(a[y+1, :-2] + e[2:]  * _w2, 0, 255)
+            if w > 1: a[y+1, :-1] = np.clip(a[y+1, :-1] + e[1:]  * _w4, 0, 255)
+            a[y+1]             = np.clip(a[y+1]           + e      * _w8, 0, 255)
+            if w > 1: a[y+1, 1:]  = np.clip(a[y+1, 1:]  + e[:-1] * _w4, 0, 255)
+            if w > 2: a[y+1, 2:]  = np.clip(a[y+1, 2:]  + e[:-2] * _w2, 0, 255)
+        a[y] = nw
+    return np.clip(a, 0, 255).astype(np.uint8)
+
+
+def _stevenson_arce_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+    h, w = a.shape; d = 200.0
+    # Pre-divide weights to avoid repeated float division in the inner loop
+    coeffs = [
+        (0,  2, 32/d),
+        (1, -3, 12/d), (1, -1, 26/d), (1,  1, 30/d), (1, 3, 16/d),
+        (2, -2, 12/d), (2,  0, 26/d), (2,  2, 12/d),
+        (3, -3,  5/d), (3, -1, 12/d), (3,  1, 12/d), (3, 3,  5/d),
+    ]
+    for y in range(h):
+        row = a[y].copy(); nw = np.where(row > t, 255., 0.); e = row - nw
+        for dy, dx, wt in coeffs:
+            ny = y + dy
+            if ny >= h:
+                continue
+            if dx > 0:
+                if w > dx:
+                    a[ny, dx:] = np.clip(a[ny, dx:] + e[:w - dx] * wt, 0, 255)
+            elif dx < 0:
+                adx = -dx
+                if w > adx:
+                    a[ny, :w - adx] = np.clip(a[ny, :w - adx] + e[adx:] * wt, 0, 255)
+            else:
+                a[ny] = np.clip(a[ny] + e * wt, 0, 255)
+        a[y] = nw
+    return np.clip(a, 0, 255).astype(np.uint8)
+
+
+# Ostromoukhov: precompute the table as a numpy array for index-based lookup
+_OSTROMOUKHOV_TABLE = np.array([
+    (13, 0,  5, 18), (13, 0,  5, 18), (21, 0, 10, 31), ( 7, 0,  4, 11),
+    ( 8, 0,  5, 13), (47, 3, 28, 78), (23, 3, 13, 39), (15, 3,  8, 26),
+    (22, 5, 10, 37), (56,14, 21, 91), (28, 8,  9, 45), (19, 6,  5, 30),
+    (14, 5,  3, 22), ( 7, 3,  1, 11), (65,32,  7,104), (23,12,  2, 37),
+    (23,12,  2, 37), (65,32,  7,104), ( 7, 3,  1, 11), (14, 5,  3, 22),
+    (19, 6,  5, 30), (28, 8,  9, 45), (56,14, 21, 91), (22, 5, 10, 37),
+    (15, 3,  8, 26), (23, 3, 13, 39), (47, 3, 28, 78), ( 8, 0,  5, 13),
+    ( 7, 0,  4, 11), (21, 0, 10, 31), (13, 0,  5, 18), (13, 0,  5, 18),
+], dtype=np.float32)  # shape (32, 4)
+
+
+def _ostromoukhov_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+    h, w = a.shape
+    tbl  = _OSTROMOUKHOV_TABLE
+    for y in range(h):
+        for x in range(w):
+            old = a[y, x]; new = 255.0 if old > t else 0.0; err = old - new
+            a[y, x] = new
+            band = int(np.clip(old * (1.0 / 8.0), 0, 31))
+            c0, c1, c2, dn = tbl[band]
+            if dn == 0:
+                continue
+            inv_dn = 1.0 / dn
+            if x+1 < w:   a[y,   x+1] = np.clip(a[y,   x+1] + err * c0 * inv_dn, 0, 255)
+            if y+1 < h:
+                if x > 0: a[y+1, x-1] = np.clip(a[y+1, x-1] + err * c1 * inv_dn, 0, 255)
+                a[y+1, x]             = np.clip(a[y+1, x]     + err * c2 * inv_dn, 0, 255)
+    return np.clip(a, 0, 255).astype(np.uint8)
+
+
+_BLUE_NOISE_MASK_64 = None
+
+
+def _get_blue_noise_mask(h: int, w: int) -> np.ndarray:
+    global _BLUE_NOISE_MASK_64
+    if _BLUE_NOISE_MASK_64 is None:
+        rng  = np.random.default_rng(0xD1740)
+        base = rng.integers(0, 256, (64, 64), dtype=np.uint8).astype(np.float32)
+        blurred = np.array(
+            Image.fromarray(base.astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius=4)),
+            dtype=np.float32)
+        _BLUE_NOISE_MASK_64 = np.clip(base - blurred + 128, 0, 255)
+    return tile(_BLUE_NOISE_MASK_64, h, w)
+
+
+def _blue_noise_mask_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+    h, w = a.shape
+    mask = _get_blue_noise_mask(h, w)
+    return np.where(a + (mask - 128.0) * (1.0 - t / 255.0) > t, 255, 0).astype(np.uint8)
+
+
+def _dot_diffusion_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+    h, w = a.shape
+    dc   = tile(_DOT_CLASS, h, w)
+    for y in range(h):
+        row = a[y].copy(); nw = np.where(row > t, 255., 0.)
+        err = row - nw; cm = dc[y]
+        if w > 1:
+            a[y, 1:] = np.clip(a[y, 1:] + err[:-1] / (cm[:-1] + 1.), 0, 255)
+        a[y] = nw
+    return np.clip(a, 0, 255).astype(np.uint8)
+
+
+def _riemersma_vectorised(a: np.ndarray, t: float) -> np.ndarray:
+    h, w = a.shape
+    buf  = [0.] * 16
+    decay = 0.0625  # 1/16 -- named constant avoids magic number
+    for y in range(h):
+        xs = range(w) if y % 2 == 0 else range(w - 1, -1, -1)
+        for x in xs:
+            old = float(a[y, x]) + buf[0]
+            new = 255. if old > t else 0.
+            a[y, x] = new
+            buf = buf[1:] + [(old - new) * decay]
+    return np.clip(a, 0, 255).astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
+# Replace-colour: vectorised
+# ---------------------------------------------------------------------------
+
+_WHITE = np.array([255, 255, 255], dtype=np.uint8)
+
+
+def _apply_replace_color(data: np.ndarray, replace_color: tuple) -> np.ndarray:
+    rc = np.array(replace_color, dtype=np.uint8)
+    if np.array_equal(rc, _WHITE):
+        return data
+    mask = np.all(data == _WHITE, axis=-1)
+    data[mask] = rc
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Main dither pipeline
+# ---------------------------------------------------------------------------
+
+# Dispatch table avoids a long if/elif chain in the hot path
+_BW_DISPATCH: dict[str, object] = {}  # populated after function definitions
+
+
+def _build_dispatch():
+    global _BW_DISPATCH
+    _BW_DISPATCH = {
+        "Floyd-Steinberg":     gpu_fs_dither,
+        "Atkinson":            _atkinson_vectorised,
+        "Sierra":              _sierra_vectorised,
+        "Sierra-Lite":         _sierra_lite_vectorised,
+        "Nakano":              _nakano_vectorised,
+        "Jarvis-Judice-Ninke": _jjn_vectorised,
+        "Stucki":              _stucki_vectorised,
+        "Burkes":              _burkes_vectorised,
+        "Stevenson-Arce":      _stevenson_arce_vectorised,
+        "Ostromoukhov":        _ostromoukhov_vectorised,
+        "Variable-Error":      _variable_error_vectorised,
+        "Dot-Diffusion":       _dot_diffusion_vectorised,
+        "Riemersma":           _riemersma_vectorised,
+    }
+
+
+_build_dispatch()
+
+
+def apply_dither(
+    img: Image.Image,
+    pixel_size: int,
+    threshold: float,
+    replace_color: tuple,
+    method: str,
+    brightness: float = 1.0,
+    contrast:   float = 1.0,
+    blur:       float = 0,
+    sharpen:    float = 0,
+    glow_radius:    float = 0,
+    glow_intensity: float = 0,
+    preview: bool = False,
+    palette_name: str = "B&W",
+    custom_palette: Optional[list] = None,
+) -> Image.Image:
+    img = adjust(img, brightness, contrast, blur, sharpen)
+
+    palette  = custom_palette if (custom_palette and len(custom_palette) >= 2) \
+               else PALETTES.get(palette_name, PALETTES["B&W"])
+    is_bw    = (palette == PALETTES["B&W"])
+    # Preview doubles the effective pixel block so fewer pixels are processed.
+    effective_pixel = max(1, pixel_size * (2 if preview else 1))
+
+    if not is_bw:
+        rgb = img.convert("RGB")
+        sw  = max(1, rgb.width  // effective_pixel)
+        sh  = max(1, rgb.height // effective_pixel)
+        rgb = rgb.resize((sw, sh), Image.NEAREST)
+        result = palette_dither(rgb, palette, method=method, threshold=threshold)
+        result = result.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
+        data   = np.array(result)
+        data   = _apply_replace_color(data, replace_color)
+        result = Image.fromarray(data)
+        if glow_radius > 0 and glow_intensity > 0:
+            result = apply_glow(result, glow_radius, glow_intensity)
+        return result
+
+    # -- B&W path --
+    img = img.convert('L')
+    sw  = max(1, img.width  // effective_pixel)
+    sh  = max(1, img.height // effective_pixel)
+    img = img.resize((sw, sh), Image.NEAREST)
+    a   = np.array(img, dtype=np.float32)
+    h, w = a.shape
+    t    = float(threshold)
+
+    if method in ORDERED_MATRICES:
+        tiled = tile(ORDERED_MATRICES[method], h, w)
+        a     = gpu_ordered_dither(a, tiled, t)
+    elif method == "Crosshatch":
+        xs  = np.arange(w, dtype=np.float32)
+        ys  = np.arange(h, dtype=np.float32)
+        ch  = (np.sin(xs[None, :] * 0.5) + np.sin(ys[:, None] * 0.5)) * 64. + 128.
+        a   = gpu_ordered_dither(a, ch, t)
+    elif method == "Blue-Noise Mask":
+        a   = gpu_ordered_dither(a, _get_blue_noise_mask(h, w), t)
+    elif method in _BW_DISPATCH:
+        a   = _BW_DISPATCH[method](a, t)
+    else:
+        a   = np.where(a > t, 255, 0).astype(np.uint8)
+
+    img  = Image.fromarray(a, mode='L')
+    img  = img.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
+    img  = img.convert("RGB")
+    data = np.array(img)
+    data = _apply_replace_color(data, replace_color)
+    img  = Image.fromarray(data)
+
+    if glow_radius > 0 and glow_intensity > 0:
+        img = apply_glow(img, glow_radius, glow_intensity)
+
+    return img
