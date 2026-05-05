@@ -1,54 +1,37 @@
 from __future__ import annotations
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-
-_P0  = "#0f0f10"   # deepest background
-_P1  = "#161618"   # main background
-_P2  = "#1c1c1f"   # panel / sidebar background
-_P3  = "#222226"   # card / container
-_P4  = "#2a2a2e"   # toolbar / elevated surface
-_P5  = "#35353b"   # borders (normal)
-_P6  = "#48484f"   # borders (hover)
+# Surface layers (darkest → lightest elevation)
+_P0 = "#0f0f10"  # deepest background
+_P1 = "#161618"  # main background
+_P2 = "#1c1c1f"  # panel / sidebar
+_P3 = "#222226"  # card / container
+_P4 = "#2a2a2e"  # toolbar / elevated surface
+_P5 = "#35353b"  # borders (normal)
+_P6 = "#48484f"  # borders (hover)
 
 # Accent — electric violet-blue
-_G0  = "#7c6dff"   # primary accent
-_G1  = "#6458e8"   # hover accent
-_G2  = "#4e44cc"   # active / pressed accent
-_G3  = "#312d80"   # muted accent / tint fills
+_G0 = "#7c6dff"  # primary accent
+_G1 = "#6458e8"  # hover
+_G2 = "#4e44cc"  # active / pressed
+_G3 = "#312d80"  # muted tint fills
 
-_AM  = "#f5a623"   # warning
-_RE  = "#ff4f5e"   # error
+# Semantic
+_AM = "#f5a623"  # warning
+_RE = "#ff4f5e"  # error
 
-_FG  = "#f2f2f5"   # primary text
-_FG2 = "#a0a0b0"   # secondary text
-_FG3 = "#5a5a6a"   # disabled / hint text
+# Text
+_FG  = "#f2f2f5"  # primary
+_FG2 = "#a0a0b0"  # secondary
+_FG3 = "#5a5a6a"  # disabled / hint
 
-# _P0  = "#1e1e1e"   # main background
-# _P1  = "#252526"   # panel background
-# _P2  = "#2d2d2d"   # secondary panel
-# _P3  = "#333333"   # card / container
-# _P4  = "#3c3c3c"   # toolbar
-# _P5  = "#464646"   # hover background
-# _P6  = "#555555"   # borders / separators
-
-# _G0  = "#3ea6ff"   # primary accent
-# _G1  = "#2b88d8"   # hover accent
-# _G2  = "#1f6fb2"   # active accent
-# _G3  = "#17558a"   # muted accent
-
-# _AM  = "#f5a623"   # warning
-# _RE  = "#e34850"   # error
-
-# _FG  = "#f0f0f0"   # primary text
-# _FG2 = "#b9b9b9"   # secondary text
-# _FG3 = "#7a7a7a"   # disabled / hint text
-
+# Fonts
 _MONO_FONT = "'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace"
 _SANS_FONT = "'Inter', 'DM Sans', 'Outfit', 'Segoe UI', sans-serif"
 
 # ── Stylesheet ────────────────────────────────────────────────────────────────
 _THEME = f"""
-* {{ box-sizing: border-box; outline: none; }}
+* {{ outline: none; }}
 
 QMainWindow, QWidget {{
     background-color: {_P1};
@@ -57,7 +40,7 @@ QMainWindow, QWidget {{
     font-size: 12px;
 }}
 
-/* ── Toolbar ──────────────────────────────────────────────────────────────── */
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
 QToolBar {{
     background: {_P0};
     border: none;
@@ -99,16 +82,14 @@ QToolBar::separator {{
     margin: 6px 4px;
 }}
 
-/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
 QTabWidget::pane {{
     border: 1px solid {_P5};
     border-top: none;
     background: {_P1};
     border-radius: 0 0 8px 8px;
 }}
-QTabBar {{
-    background: transparent;
-}}
+QTabBar {{ background: transparent; }}
 QTabBar::tab {{
     background: {_P2};
     border: 1px solid {_P5};
@@ -118,7 +99,6 @@ QTabBar::tab {{
     font-size: 12px;
     font-weight: 500;
     color: {_FG3};
-    border-radius: 0px 0px 0 0;
     margin-right: 2px;
     min-width: 90px;
 }}
@@ -132,7 +112,7 @@ QTabBar::tab:hover:!selected {{
     background: {_P3};
 }}
 
-/* ── GroupBox ─────────────────────────────────────────────────────────────── */
+/* ── GroupBox ────────────────────────────────────────────────────────────── */
 QGroupBox {{
     border: 1px solid {_P5};
     border-radius: 2px;
@@ -154,7 +134,7 @@ QGroupBox::title {{
     background: {_P1};
 }}
 
-/* ── Push Buttons ─────────────────────────────────────────────────────────── */
+/* ── Push Buttons ────────────────────────────────────────────────────────── */
 QPushButton {{
     background: {_P3};
     border: 1px solid {_P5};
@@ -201,7 +181,7 @@ QPushButton#danger:hover {{
     border-color: {_RE};
 }}
 
-/* ── ComboBox ─────────────────────────────────────────────────────────────── */
+/* ── ComboBox ────────────────────────────────────────────────────────────── */
 QComboBox {{
     background: {_P3};
     border: 1px solid {_P5};
@@ -233,7 +213,7 @@ QComboBox QAbstractItemView {{
     outline: 0;
 }}
 
-/* ── CheckBox ─────────────────────────────────────────────────────────────── */
+/* ── CheckBox ────────────────────────────────────────────────────────────── */
 QCheckBox {{
     spacing: 8px;
     font-size: 12px;
@@ -251,7 +231,7 @@ QCheckBox::indicator:checked {{
 }}
 QCheckBox::indicator:hover {{ border-color: {_G1}; background: {_P4}; }}
 
-/* ── Slider ───────────────────────────────────────────────────────────────── */
+/* ── Slider ──────────────────────────────────────────────────────────────── */
 QSlider::groove:horizontal {{
     height: 4px;
     background: {_P4};
@@ -274,7 +254,7 @@ QSlider::handle:horizontal:hover {{
     border-color: {_G0};
 }}
 
-/* ── ScrollBar ────────────────────────────────────────────────────────────── */
+/* ── ScrollBar ───────────────────────────────────────────────────────────── */
 QScrollArea {{ border: 1px solid {_P4}; background: {_P0}; }}
 QScrollBar:vertical, QScrollBar:horizontal {{
     background: {_P1}; width: 6px; height: 6px; border-radius: 3px; margin: 0;
@@ -284,18 +264,14 @@ QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
 }}
 QScrollBar::handle:vertical:hover,
 QScrollBar::handle:horizontal:hover {{ background: {_P6}; }}
-QScrollBar::add-line, QScrollBar::sub-line {{ width:0; height:0; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 QScrollBar::corner {{ background: {_P1}; }}
 
-/* ── ProgressBar ──────────────────────────────────────────────────────────── */
+/* ── ProgressBar ─────────────────────────────────────────────────────────── */
 QProgressBar {{
     border: none;
     border-radius: 4px;
     background: {_P3};
-    text-align: center;
-    font-family: {_MONO_FONT};
-    font-size: 9px;
-    color: {_G0};
     height: 8px;
 }}
 QProgressBar::chunk {{
@@ -303,7 +279,7 @@ QProgressBar::chunk {{
     border-radius: 4px;
 }}
 
-/* ── StatusBar ────────────────────────────────────────────────────────────── */
+/* ── StatusBar ───────────────────────────────────────────────────────────── */
 QStatusBar {{
     background: {_P0};
     color: {_FG3};
@@ -314,14 +290,10 @@ QStatusBar {{
 }}
 QStatusBar QLabel {{ color: {_G1}; }}
 
-/* ── Splitter ─────────────────────────────────────────────────────────────── */
-QSplitter::handle {{
-    background: {_P5};
-    width: 1px;
-    height: 1px;
-}}
+/* ── Splitter ────────────────────────────────────────────────────────────── */
+QSplitter::handle {{ background: {_P5}; width: 1px; height: 1px; }}
 
-/* ── SpinBox ──────────────────────────────────────────────────────────────── */
+/* ── SpinBox ─────────────────────────────────────────────────────────────── */
 QSpinBox {{
     background: {_P3};
     border: 1px solid {_P5};
@@ -334,14 +306,11 @@ QSpinBox {{
 QSpinBox:hover {{ border-color: {_G3}; }}
 QSpinBox:focus {{ border-color: {_G2}; }}
 QSpinBox::up-button, QSpinBox::down-button {{
-    background: {_P4};
-    width: 18px;
-    border-radius: 0;
-    border: none;
+    background: {_P4}; width: 18px; border: none;
 }}
 QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: {_P5}; }}
 
-/* ── LineEdit ─────────────────────────────────────────────────────────────── */
+/* ── LineEdit ────────────────────────────────────────────────────────────── */
 QLineEdit {{
     background: {_P3};
     border: 1px solid {_P5};
@@ -353,17 +322,17 @@ QLineEdit {{
 }}
 QLineEdit:focus {{ border-color: {_G2}; background: {_P4}; }}
 
-/* ── Dialog ───────────────────────────────────────────────────────────────── */
+/* ── Dialog ──────────────────────────────────────────────────────────────── */
 QDialog {{
     background: {_P1};
     border: 1px solid {_P5};
     border-radius: 10px;
 }}
 
-/* ── Frames ───────────────────────────────────────────────────────────────── */
+/* ── Frames ──────────────────────────────────────────────────────────────── */
 QFrame[frameShape="4"], QFrame[frameShape="5"] {{ color: {_P5}; }}
 
-/* ── Tooltip ──────────────────────────────────────────────────────────────── */
+/* ── Tooltip ─────────────────────────────────────────────────────────────── */
 QToolTip {{
     background: {_P0};
     border: 1px solid {_G3};
@@ -376,5 +345,5 @@ QToolTip {{
 }}
 """
 
-# Legacy alias kept for backwards compatibility
+# Legacy alias
 THEME = _THEME
