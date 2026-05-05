@@ -7,7 +7,7 @@ _HISTORY_LIMIT = 20
 _DEBOUNCE_MS   = 250
 _PREVIEW_SCALE = 0.5
 _VIDEO_WORKERS = max(4, (os.cpu_count() - 1 or 4))
-VERSION        = "3.5.2"
+VERSION        = "3.5.4"
 
 METHOD_GROUPS = {
     "Ordered": [
