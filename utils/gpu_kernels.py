@@ -1,13 +1,17 @@
 """GPU acceleration layer for Dither Guy.
 
 Backend priority:
-  1. CuPy    – NVIDIA CUDA (fastest)
-  2. PyOpenCL – any OpenCL device (AMD, Intel, Apple Silicon, NVIDIA)
-  3. NumPy   – pure-CPU fallback (always available)
+  1. CuPy  – NVIDIA CUDA (fastest)
+  2. NumPy – pure-CPU fallback (always available)
+
+OpenCL is intentionally disabled: cl.create_some_context() / Context() picks
+devices non-deterministically across platforms and has caused instability in
+practice.  Re-enable by restoring _try_opencl() if a stable device-selection
+strategy is available.
 
 Public API
 ----------
-GPU_BACKEND : str           – "cuda" | "opencl" | "cpu"
+GPU_BACKEND : str           – "cuda" | "cpu"
 to_gpu(arr)  -> array       – move ndarray to active device
 from_gpu(arr) -> np.ndarray – bring result back to host
 gpu_ordered_dither(a, tiled, t) -> array
@@ -31,36 +35,18 @@ def _try_cuda():
         return None
 
 
-def _try_opencl():
-    try:
-        import pyopencl as cl
-        platforms = cl.get_platforms()
-        if not platforms:
-            return None, None
-        ctx = cl.Context(dev_type=cl.device_type.ALL)
-        queue = cl.CommandQueue(ctx)
-        return cl, (ctx, queue)
-    except Exception:
-        return None, None
+# OpenCL disabled -- context selection is non-deterministic and unstable.
+# def _try_opencl(): ...
 
 
 cp = _try_cuda()
-cl, cl_ctx = _try_opencl()
 
 if cp:
     GPU_BACKEND = "cuda"
     _xp = cp
-elif cl:
-    GPU_BACKEND = "opencl"
-    _xp = np
 else:
     GPU_BACKEND = "cpu"
     _xp = np
-
-if cl_ctx is not None:
-    _ctx, _queue = cl_ctx
-else:
-    _ctx = _queue = None
 
 # ---------------------------------------------------------------------------
 # Transfer helpers
@@ -70,9 +56,6 @@ def to_gpu(arr: np.ndarray):
     """Upload a NumPy array to the active device; no-op on CPU backend."""
     if GPU_BACKEND == "cuda" and cp is not None:
         return cp.asarray(arr)
-    if GPU_BACKEND == "opencl" and cl is not None:
-        import pyopencl.array as cl_array
-        return cl_array.to_device(_queue, arr.astype(arr.dtype, copy=False))
     return arr
 
 
@@ -80,8 +63,6 @@ def from_gpu(arr) -> np.ndarray:
     """Download a device array back to NumPy; no-op on CPU backend."""
     if GPU_BACKEND == "cuda" and cp is not None:
         return cp.asnumpy(arr)
-    if GPU_BACKEND == "opencl" and cl is not None:
-        return arr.get()
     return np.asarray(arr)
 
 
@@ -195,18 +176,15 @@ def gpu_palette_nearest(flat, pal_lab: np.ndarray) -> np.ndarray:
         return np.argmin(dists, axis=1)
 
     xp      = _active_np()
-    gpal    = _get_gpal(pal_lab)   # cached device copy -- no repeated upload
+    gpal    = _get_gpal(pal_lab)
     results = []
     n       = flat.shape[0]
 
     for i in range(0, n, _PALETTE_NEAREST_BATCH):
         chunk    = flat[i : i + _PALETTE_NEAREST_BATCH]
-        gpix_lab = gpu_rgb_to_lab(chunk)                           # (B, 3) device
+        gpix_lab = gpu_rgb_to_lab(chunk)
         diff     = gpix_lab[:, xp.newaxis, :] - gpal[xp.newaxis, :, :]
-        if GPU_BACKEND == "cuda" and cp is not None:
-            dists = xp.einsum('nkc,nkc->nk', diff, diff)
-        else:
-            dists = xp.sum(diff * diff, axis=2)
+        dists    = xp.einsum('nkc,nkc->nk', diff, diff)
         results.append(from_gpu(xp.argmin(dists, axis=1)))
 
     return np.concatenate(results)
