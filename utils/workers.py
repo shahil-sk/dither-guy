@@ -35,9 +35,9 @@ class DitherWorker(QThread):
         self._pal  = palette_name
         self._cpal = custom_palette
         self._stop = False; self._mutex = QMutex()
-        self.setPriority(QThread.Priority.LowPriority)
 
     def run(self):
+        self.setPriority(QThread.Priority.LowPriority)
         try:
             t0     = time.perf_counter()
             result = apply_dither(
