@@ -84,12 +84,13 @@ def _rgb_to_lab_batch(rgb: np.ndarray) -> np.ndarray:
 
 _rgb_to_lab = _rgb_to_lab_batch
 
-# Palette LAB cache — never recompute for the same palette array
+# Palette LAB cache — keyed by content hash so the same palette colours
+# always hit the cache regardless of which array object holds them.
 _PAL_LAB_CACHE: dict[int, np.ndarray] = {}
 
 
 def _get_pal_lab(pal: np.ndarray) -> np.ndarray:
-    key = id(pal.data) if pal.flags['OWNDATA'] else hash(pal.tobytes())
+    key = hash(pal.tobytes())
     if key not in _PAL_LAB_CACHE:
         _PAL_LAB_CACHE[key] = _rgb_to_lab_batch(pal)
     return _PAL_LAB_CACHE[key]

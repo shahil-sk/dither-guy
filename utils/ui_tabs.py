@@ -403,7 +403,9 @@ class VideoTab(QWidget):
             dith = apply_dither(
                 img, p['pixel_size'], p['threshold'], p['color'], p['method'],
                 p['brightness'], p['contrast'], p['blur'], p['sharpen'],
-                p['glow_radius'], p['glow_intensity'])
+                p['glow_radius'], p['glow_intensity'],
+                palette_name=p.get('palette_name', 'B&W'),
+                custom_palette=p.get('custom_palette'))
             self.canvas.set_image(pil_to_pixmap(dith))
             self.canvas.setStyleSheet(f"background:{_P0};")
         except Exception as exc:
@@ -421,7 +423,9 @@ class VideoTab(QWidget):
         self.export_worker = VideoExportWorker(
             self.video_path, path, p['pixel_size'], p['threshold'], p['color'], p['method'],
             p['brightness'], p['contrast'], p['blur'], p['sharpen'],
-            p['glow_radius'], p['glow_intensity'])
+            p['glow_radius'], p['glow_intensity'],
+            palette_name=p.get('palette_name', 'B&W'),
+            custom_palette=p.get('custom_palette'))
         self.export_worker.frame_ready.connect(
             lambda img: self.canvas.set_image(pil_to_pixmap(img)))
         self.export_worker.progress.connect(self._on_progress)
