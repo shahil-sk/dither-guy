@@ -100,6 +100,18 @@ _XYZ_SCALE = np.array([1.0 / 0.9505, 1.0, 1.0 / 1.089], dtype=np.float32)
 _LAB_EPS   = np.float32(0.008856)
 _LAB_KAPPA = np.float32(903.3)
 
+# Palette LAB is small -- cache it on device to avoid re-uploading each batch
+_GPAL_CACHE: dict[int, object] = {}
+
+
+def _get_gpal(pal_lab: np.ndarray):
+    """Return device copy of pal_lab, uploading and caching on first call."""
+    key = hash(pal_lab.tobytes())
+    if key not in _GPAL_CACHE:
+        _GPAL_CACHE[key] = to_gpu(pal_lab.astype(np.float32))
+    return _GPAL_CACHE[key]
+
+
 # ---------------------------------------------------------------------------
 # GPU-accelerated ordered dither
 # Assumes `a` and `tiled` are already on device when GPU_BACKEND != "cpu".
@@ -127,8 +139,6 @@ def gpu_ordered_dither(a, tiled, t: float):
 
 # ---------------------------------------------------------------------------
 # GPU-accelerated palette nearest-neighbour in L*a*b* space
-# Assumes inputs are already on device when GPU_BACKEND != "cpu".
-# Returns a HOST int array (argmin is always small, safe to pull back).
 # ---------------------------------------------------------------------------
 
 def gpu_rgb_to_lab(r_device):
@@ -147,8 +157,8 @@ def gpu_rgb_to_lab(r_device):
         r / xp.float32(12.92)
     )
 
-    M   = to_gpu(_SRGB_TO_XYZ)   # small constant -- cheap transfer
-    sc  = to_gpu(_XYZ_SCALE)
+    M  = to_gpu(_SRGB_TO_XYZ)
+    sc = to_gpu(_XYZ_SCALE)
 
     if GPU_BACKEND == "cuda" and cp is not None:
         xyz = xp.einsum('...c,rc->...r', r, M) * sc
@@ -167,11 +177,15 @@ def gpu_rgb_to_lab(r_device):
     return xp.stack([L, a, b], axis=-1)
 
 
+_PALETTE_NEAREST_BATCH = 65_536  # pixels per chunk -- caps peak VRAM allocation
+
+
 def gpu_palette_nearest(flat, pal_lab: np.ndarray) -> np.ndarray:
     """Return argmin palette index for each row of `flat` (N,3) RGB.
 
     `flat` must already be on device when GPU_BACKEND != "cpu".
-    `pal_lab` is always a host NumPy array; transferred here once (small).
+    `pal_lab` is a host NumPy array; cached on device after first upload.
+    Processes pixels in batches to keep VRAM usage bounded.
     Returns a HOST int array.
     """
     if GPU_BACKEND == "cpu":
@@ -180,15 +194,22 @@ def gpu_palette_nearest(flat, pal_lab: np.ndarray) -> np.ndarray:
         dists   = np.einsum('nkc,nkc->nk', diff, diff)
         return np.argmin(dists, axis=1)
 
-    xp       = _active_np()
-    gpix_lab = gpu_rgb_to_lab(flat)               # (N, 3) device
-    gpal_lab = to_gpu(pal_lab.astype(np.float32)) # (K, 3) device -- small, OK here
-    diff     = gpix_lab[:, xp.newaxis, :] - gpal_lab[xp.newaxis, :, :]
-    if GPU_BACKEND == "cuda" and cp is not None:
-        dists = xp.einsum('nkc,nkc->nk', diff, diff)
-    else:
-        dists = xp.sum(diff * diff, axis=2)
-    return from_gpu(xp.argmin(dists, axis=1))
+    xp      = _active_np()
+    gpal    = _get_gpal(pal_lab)   # cached device copy -- no repeated upload
+    results = []
+    n       = flat.shape[0]
+
+    for i in range(0, n, _PALETTE_NEAREST_BATCH):
+        chunk    = flat[i : i + _PALETTE_NEAREST_BATCH]
+        gpix_lab = gpu_rgb_to_lab(chunk)                           # (B, 3) device
+        diff     = gpix_lab[:, xp.newaxis, :] - gpal[xp.newaxis, :, :]
+        if GPU_BACKEND == "cuda" and cp is not None:
+            dists = xp.einsum('nkc,nkc->nk', diff, diff)
+        else:
+            dists = xp.sum(diff * diff, axis=2)
+        results.append(from_gpu(xp.argmin(dists, axis=1)))
+
+    return np.concatenate(results)
 
 
 def _cpu_rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
