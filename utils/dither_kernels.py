@@ -10,7 +10,6 @@ from .palettes import PALETTES
 from .gpu_kernels import (
     GPU_BACKEND,
     gpu_ordered_dither,
-    gpu_fs_dither,
     gpu_palette_nearest,
     from_gpu,
     to_gpu,
@@ -671,7 +670,7 @@ _BW_DISPATCH: dict[str, object] = {}  # populated after function definitions
 def _build_dispatch():
     global _BW_DISPATCH
     _BW_DISPATCH = {
-        "Floyd-Steinberg":     gpu_fs_dither,
+        "Floyd-Steinberg":     _fs_vectorised,
         "Atkinson":            _atkinson_vectorised,
         "Sierra":              _sierra_vectorised,
         "Sierra-Lite":         _sierra_lite_vectorised,
