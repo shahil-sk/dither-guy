@@ -55,7 +55,7 @@ class ImageTab(QWidget):
         self._build()
         self.setAcceptDrops(True)
 
-    # ── Build ──────────────────────────────────────────────────────────────
+    # ── Build ──────────────────────────────────────────────────────────────────────
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -83,7 +83,7 @@ class ImageTab(QWidget):
         self.histogram.setVisible(False)
         layout.addWidget(self.histogram)
 
-        # ── Toolbar bar ────────────────────────────────────────────────────
+        # ── Toolbar bar ───────────────────────────────────────────────────────────────
         bar1 = QWidget()
         bar1.setStyleSheet(f"background:{_P0};")
         bl1 = QHBoxLayout(bar1)
@@ -137,38 +137,7 @@ class ImageTab(QWidget):
         bl1.addWidget(self.undo_btn)
         layout.addWidget(bar1)
 
-        # ── Save bar ───────────────────────────────────────────────────────
-        # bar2 = QWidget()
-        # bar2.setStyleSheet(f"background:{_P0}; border-top:1px solid {_G3};")
-        # bl2 = QHBoxLayout(bar2)
-        # bl2.setContentsMargins(8, 5, 8, 5)
-        # bl2.setSpacing(5)
-        # open_btn = QPushButton("📂 Open")
-        # open_btn.setMinimumHeight(28)
-        # open_btn.clicked.connect(self.open_file)
-        # save_btn = QPushButton("💾 Save")
-        # save_btn.setObjectName("accent")
-        # save_btn.setMinimumHeight(28)
-        # save_btn.clicked.connect(self.save_file)
-        # bl2.addWidget(open_btn)
-        # bl2.addWidget(save_btn)
-        # bl2.addStretch()
-
-        # self.zoom_lbl = QLabel("100%")
-        # self.zoom_lbl.setStyleSheet(
-        #     f"font-family:{_MONO_FONT}; font-size:10px; color:{_FG3};"
-        # )
-        # bl2.addWidget(self.zoom_lbl)
-        # for label, slot in (("-", self.zoom_out), ("+", self.zoom_in),
-        #                      ("⤢", self.fit), ("1:1", self.actual)):
-        #     b = QPushButton(label)
-        #     b.setMinimumHeight(22)
-        #     b.setFixedWidth(30)
-        #     b.clicked.connect(slot)
-        #     bl2.addWidget(b)
-        # layout.addWidget(bar2)
-
-    # ── Drag & drop ────────────────────────────────────────────────────────
+    # ── Drag & drop ─────────────────────────────────────────────────────────────
 
     def dragEnterEvent(self, e) -> None:
         if e.mimeData().hasUrls():
@@ -181,7 +150,7 @@ class ImageTab(QWidget):
                 self._load(p)
                 break
 
-    # ── Auto-update ────────────────────────────────────────────────────────
+    # ── Auto-update ────────────────────────────────────────────────────────────
 
     def _toggle_auto(self, state: int) -> None:
         self.auto_update = bool(state)
@@ -197,7 +166,7 @@ class ImageTab(QWidget):
             self._timer.stop()
             self._timer.start(_DEBOUNCE_MS)
 
-    # ── Processing ─────────────────────────────────────────────────────────
+    # ── Processing ─────────────────────────────────────────────────────────────
 
     def _build_worker(self, preview: bool) -> DitherWorker:
         p = self.get_params()
@@ -236,7 +205,7 @@ class ImageTab(QWidget):
 
     def _stop_worker(self) -> None:
         if self.worker and self.worker.isRunning():
-            self._worker_id = 0           # orphan any pending finished signal
+            self._worker_id = 0
             self.worker.stop()
             if not self.worker.wait(1500):
                 self.worker.terminate()
@@ -244,7 +213,7 @@ class ImageTab(QWidget):
             self.worker.deleteLater()
             self.worker = None
 
-    # ── File I/O ───────────────────────────────────────────────────────────
+    # ── File I/O ─────────────────────────────────────────────────────────────────
 
     def _load(self, path: str) -> None:
         try:
@@ -291,7 +260,7 @@ class ImageTab(QWidget):
             except Exception as exc:
                 QMessageBox.critical(self, "Save Error", f"Failed:\n{exc}")
 
-    # ── History ────────────────────────────────────────────────────────────
+    # ── History ───────────────────────────────────────────────────────────────────
 
     def _refresh_info(self) -> None:
         if self.original_img:
@@ -312,7 +281,7 @@ class ImageTab(QWidget):
             return False
         return True
 
-    # ── Image operations ───────────────────────────────────────────────────
+    # ── Image operations ───────────────────────────────────────────────────────────
 
     def invert(self) -> None:
         if not self._require_image("invert"):
@@ -393,7 +362,7 @@ class ImageTab(QWidget):
         self._refresh_info()
         self.process()
 
-    # ── Worker callbacks ───────────────────────────────────────────────────
+    # ── Worker callbacks ───────────────────────────────────────────────────────────
 
     def _on_done(self, payload, worker_id: int) -> None:
         if worker_id != self._worker_id:
@@ -405,31 +374,17 @@ class ImageTab(QWidget):
             self.histogram.update_data(img)
         self.canvas.set_image(pil_to_pixmap(img))
         self.canvas.setStyleSheet(f"background:{_P0};")
-        # Update zoom label
-        # pct = int((self.canvas.zoom_level or 1.0) * 100)
-        # self.zoom_lbl.setText(f"{pct}%" if self.canvas.zoom_level else "fit")
-        # p      = self.get_params()
-        # ms_str = f"{elapsed * 1000:.0f}ms"
-        # tag    = "[preview] " if is_preview else ""
-        # self.status_message.emit(f"{tag}{p['method']} · {img.width}×{img.height} · {ms_str}")
-        # if self.original_img and not is_preview:
-        #     ow, oh = self.original_img.size
-        #     self.info_lbl.setText(f"{ow}×{oh} ──▶ {img.width}×{img.height} px · {ms_str}")
 
     def _on_error(self, msg: str) -> None:
         self.status_message.emit(f"error: {msg}")
         QMessageBox.warning(self, "Processing Error", msg)
 
-    # ── Zoom proxy ─────────────────────────────────────────────────────────
+    # ── Zoom proxy (label update handled by DitherGuy._update_zoom_lbl) ─────
 
-    def zoom_in(self)     -> None: self.canvas.zoom_in();   self._sync_zoom_lbl()
-    def zoom_out(self)    -> None: self.canvas.zoom_out();  self._sync_zoom_lbl()
-    def fit(self)         -> None: self.canvas.fit();       self._sync_zoom_lbl()
-    def actual(self)      -> None: self.canvas.actual();    self._sync_zoom_lbl()
-
-    def _sync_zoom_lbl(self) -> None:
-        z = self.canvas.zoom_level
-        self.zoom_lbl.setText("fit" if z == 0 else f"{int(z * 100)}%")
+    def zoom_in(self)  -> None: self.canvas.zoom_in()
+    def zoom_out(self) -> None: self.canvas.zoom_out()
+    def fit(self)      -> None: self.canvas.fit()
+    def actual(self)   -> None: self.canvas.actual()
 
     @property
     def zoom_level(self) -> float:
@@ -458,7 +413,7 @@ class VideoTab(QWidget):
         self._play_timer.timeout.connect(self._next_frame)
         self._build()
 
-    # ── Build ──────────────────────────────────────────────────────────────
+    # ── Build ──────────────────────────────────────────────────────────────────────
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -510,7 +465,7 @@ class VideoTab(QWidget):
             )
             layout.addWidget(warn)
 
-    # ── File I/O ───────────────────────────────────────────────────────────
+    # ── File I/O ─────────────────────────────────────────────────────────────────
 
     def open_file(self) -> None:
         if not _CV2:
@@ -539,7 +494,7 @@ class VideoTab(QWidget):
         self.status_message.emit(f"loaded {Path(path).name}")
         self._next_frame()
 
-    # ── Playback ───────────────────────────────────────────────────────────
+    # ── Playback ────────────────────────────────────────────────────────────────
 
     def toggle_play(self) -> None:
         if self.is_playing:
@@ -581,7 +536,7 @@ class VideoTab(QWidget):
         except Exception as exc:
             self.status_message.emit(f"frame error: {exc}")
 
-    # ── Export ─────────────────────────────────────────────────────────────
+    # ── Export ──────────────────────────────────────────────────────────────────
 
     def export_video(self) -> None:
         if not _CV2:
@@ -630,26 +585,26 @@ class VideoTab(QWidget):
 
     def _on_export_done(self) -> None:
         if self.export_worker is None:
-            return                          # guard: ignore duplicate signal fires
-        self.export_worker = None           # clear immediately so duplicates are blocked
+            return
+        self.export_worker = None
         self.progress_bar.setVisible(False)
         self.status_message.emit("export complete")
         QMessageBox.information(self, "Done", "Video exported.")
         if self.video_cap:
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-    # ── Zoom proxy ─────────────────────────────────────────────────────────
+    # ── Zoom proxy (label update handled by DitherGuy._update_zoom_lbl) ─────
 
-    def zoom_in(self)   -> None: self.canvas.zoom_in()
-    def zoom_out(self)  -> None: self.canvas.zoom_out()
-    def fit(self)       -> None: self.canvas.fit()
-    def actual(self)    -> None: self.canvas.actual()
+    def zoom_in(self)  -> None: self.canvas.zoom_in()
+    def zoom_out(self) -> None: self.canvas.zoom_out()
+    def fit(self)      -> None: self.canvas.fit()
+    def actual(self)   -> None: self.canvas.actual()
 
     @property
     def zoom_level(self) -> float:
         return self.canvas.zoom_level
 
-    # ── Cleanup ────────────────────────────────────────────────────────────
+    # ── Cleanup ──────────────────────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:
         self._play_timer.stop()
