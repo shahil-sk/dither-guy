@@ -199,7 +199,8 @@ def palette_dither(image: Image.Image, palette: list[tuple],
 
 
 def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image:
-    """Ordered dither + GPU palette snap. No Python pixel loop."""
+    """Ordered dither + GPU palette snap. Kept for reference / future debug use.
+    Not called by apply_dither — preview and final both use palette_dither."""
     arr  = np.array(image.convert("RGB"), dtype=np.float32)
     pal  = np.asarray(palette, dtype=np.float32)
     h, w = arr.shape[:2]
@@ -210,7 +211,7 @@ def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image
 
     pal_lab = _get_pal_lab(pal)
     flat    = noisy.reshape(-1, 3)
-    idxs    = _nearest_palette_indices(flat, pal, pal_lab)
+    idxs    = _nearest_palette_nearest(flat, pal, pal_lab)
     result  = pal[idxs].reshape(h, w, 3)
     return Image.fromarray(result.astype(np.uint8), mode="RGB")
 
@@ -613,8 +614,6 @@ def _apply_replace_color(data: np.ndarray, replace_color: tuple) -> np.ndarray:
 # Main dither pipeline
 # ---------------------------------------------------------------------------
 
-_PREVIEW_MAX_DIM = 480
-
 def apply_dither(
     img: Image.Image,
     pixel_size: int,
@@ -639,22 +638,26 @@ def apply_dither(
         palette = PALETTES.get(palette_name, PALETTES["B&W"])
 
     is_bw = (palette == PALETTES["B&W"])
+    # Preview doubles the effective pixel block so fewer pixels are processed.
+    # No secondary resolution cap — a single resize keeps the pipeline uniform
+    # between preview and final so there is no visible snap when releasing.
     effective_pixel = max(1, pixel_size * (2 if preview else 1))
 
     if not is_bw:
         rgb = img.convert("RGB")
         sw  = max(1, rgb.width  // effective_pixel)
         sh  = max(1, rgb.height // effective_pixel)
-        if preview:
-            scale = min(1.0, _PREVIEW_MAX_DIM / max(sw, sh, 1))
-            sw = max(1, int(sw * scale))
-            sh = max(1, int(sh * scale))
         rgb = rgb.resize((sw, sh), Image.NEAREST)
-        if preview:
-            result = palette_dither_fast(rgb, palette)
-        else:
-            result = palette_dither(rgb, palette, method=method, threshold=threshold)
+        # Same error-diffusion path for both preview and final render.
+        # palette_dither_fast is no longer used — using it in preview caused
+        # a visually different result (bayer snap vs ED) that showed as a
+        # snap on slider release.
+        result = palette_dither(rgb, palette, method=method, threshold=threshold)
         result = result.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
+        # Apply replace_color on the color path too (was skipped before).
+        data = np.array(result)
+        data = _apply_replace_color(data, replace_color)
+        result = Image.fromarray(data)
         if glow_radius > 0 and glow_intensity > 0:
             result = apply_glow(result, glow_radius, glow_intensity)
         return result
@@ -663,10 +666,6 @@ def apply_dither(
     img = img.convert('L')
     sw = max(1, img.width  // effective_pixel)
     sh = max(1, img.height // effective_pixel)
-    if preview:
-        scale = min(1.0, _PREVIEW_MAX_DIM / max(sw, sh, 1))
-        sw = max(1, int(sw * scale))
-        sh = max(1, int(sh * scale))
     img = img.resize((sw, sh), Image.NEAREST)
     a = np.array(img, dtype=np.float32)
     h, w = a.shape
