@@ -10,9 +10,9 @@ Public API
 GPU_BACKEND : str           – "cuda" | "opencl" | "cpu"
 to_gpu(arr)  -> array       – move ndarray to active device
 from_gpu(arr) -> np.ndarray – bring result back to host
-gpu_ordered_dither(a, tiled, t) -> np.ndarray
+gpu_ordered_dither(a, tiled, t) -> array
 gpu_palette_nearest(flat, pal_lab) -> np.ndarray  (index array)
-gpu_rgb_to_lab(rgb)             -> np.ndarray
+gpu_rgb_to_lab(r_device)    -> array
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ def _active_np():
     return _xp
 
 # ---------------------------------------------------------------------------
-# Precomputed L*a*b* conversion constants
+# Precomputed L*a*b* conversion constants (host side -- uploaded on demand)
 # ---------------------------------------------------------------------------
 _SRGB_TO_XYZ = np.array([
     [0.4124, 0.3576, 0.1805],
@@ -113,15 +113,15 @@ def gpu_ordered_dither(a, tiled, t: float):
     Returns a device array; caller is responsible for from_gpu().
     On CPU backend operates on plain NumPy arrays and returns np.ndarray.
     """
-    if GPU_BACKEND == "cpu":
-        return np.where(
-            a + (tiled - 128.) * (1. - t / 255.) > t, 255, 0
-        ).astype(np.uint8)
-
-    xp  = _active_np()
+    xp = _active_np()
+    _t      = xp.float32(t)
+    _128    = xp.float32(128.0)
+    _1      = xp.float32(1.0)
+    _255    = xp.float32(255.0)
+    _inv255 = xp.float32(1.0 / 255.0)
     out = xp.where(
-        a + (xp.float32(tiled) - np.float32(128.)) * (np.float32(1.) - np.float32(t / 255.)) > np.float32(t),
-        xp.float32(255.), xp.float32(0.))
+        a.astype(xp.float32) + (tiled.astype(xp.float32) - _128) * (_1 - _t * _inv255) > _t,
+        _255, xp.float32(0.0))
     return out.astype(xp.uint8)
 
 
@@ -138,27 +138,32 @@ def gpu_rgb_to_lab(r_device):
     Returns a device array.
     """
     xp = _active_np()
-    r  = r_device.astype(xp.float32) / np.float32(255.0)
-    mask = r > np.float32(0.04045)
-    r    = xp.where(mask, ((r + np.float32(0.055)) / np.float32(1.055)) ** np.float32(2.4),
-                    r / np.float32(12.92))
+
+    r    = r_device.astype(xp.float32) / xp.float32(255.0)
+    mask = r > xp.float32(0.04045)
+    r    = xp.where(
+        mask,
+        ((r + xp.float32(0.055)) / xp.float32(1.055)) ** xp.float32(2.4),
+        r / xp.float32(12.92)
+    )
+
+    M   = to_gpu(_SRGB_TO_XYZ)   # small constant -- cheap transfer
+    sc  = to_gpu(_XYZ_SCALE)
 
     if GPU_BACKEND == "cuda" and cp is not None:
-        M   = cp.asarray(_SRGB_TO_XYZ)
-        xyz = cp.einsum('...c,rc->...r', r, M)
+        xyz = xp.einsum('...c,rc->...r', r, M) * sc
     else:
-        xyz = r @ _SRGB_TO_XYZ.T
+        xyz = (r @ M.T) * sc
 
-    sc  = xp.asarray(_XYZ_SCALE) if GPU_BACKEND == "cuda" else _XYZ_SCALE
-    xyz = xyz * sc
+    f = xp.where(
+        xyz > xp.float32(_LAB_EPS),
+        xp.cbrt(xyz),
+        (xp.float32(_LAB_KAPPA) * xyz + xp.float32(16.0)) / xp.float32(116.0)
+    )
 
-    f = xp.where(xyz > _LAB_EPS,
-                 xp.cbrt(xyz),
-                 (_LAB_KAPPA * xyz + np.float32(16.0)) / np.float32(116.0))
-
-    L = np.float32(116.0) * f[..., 1] - np.float32(16.0)
-    a = np.float32(500.0) * (f[..., 0] - f[..., 1])
-    b = np.float32(200.0) * (f[..., 1] - f[..., 2])
+    L = xp.float32(116.0) * f[..., 1] - xp.float32(16.0)
+    a = xp.float32(500.0) * (f[..., 0] - f[..., 1])
+    b = xp.float32(200.0) * (f[..., 1] - f[..., 2])
     return xp.stack([L, a, b], axis=-1)
 
 
@@ -176,11 +181,11 @@ def gpu_palette_nearest(flat, pal_lab: np.ndarray) -> np.ndarray:
         return np.argmin(dists, axis=1)
 
     xp       = _active_np()
-    gpix_lab = gpu_rgb_to_lab(flat)                        # (N, 3) device
-    gpal_lab = to_gpu(pal_lab.astype(np.float32))          # (K, 3) device -- small, OK here
+    gpix_lab = gpu_rgb_to_lab(flat)               # (N, 3) device
+    gpal_lab = to_gpu(pal_lab.astype(np.float32)) # (K, 3) device -- small, OK here
     diff     = gpix_lab[:, xp.newaxis, :] - gpal_lab[xp.newaxis, :, :]
     if GPU_BACKEND == "cuda" and cp is not None:
-        dists = cp.einsum('nkc,nkc->nk', diff, diff)
+        dists = xp.einsum('nkc,nkc->nk', diff, diff)
     else:
         dists = xp.sum(diff * diff, axis=2)
     return from_gpu(xp.argmin(dists, axis=1))
