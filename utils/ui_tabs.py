@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
+import itertools
 
 import numpy as np
 from PIL import Image
@@ -24,6 +25,8 @@ try:
 except ImportError:
     _CV2 = False
 
+_worker_id_counter = itertools.count(1)
+
 
 # ---------------------------------------------------------------------------
 # Image tab
@@ -39,6 +42,7 @@ class ImageTab(QWidget):
         self.dithered_img: Optional[Image.Image] = None
         self.last_dir     = str(Path.home())
         self.worker: Optional[DitherWorker] = None
+        self._worker_id: int = 0          # id of the currently live worker
         self.auto_update  = True
         self._history: list[Image.Image] = []
         self._timer = QTimer(); self._timer.setSingleShot(True)
@@ -132,13 +136,15 @@ class ImageTab(QWidget):
         if self.original_img is None: return
         self._stop_worker()
         p = self.get_params()
+        wid = next(_worker_id_counter)
+        self._worker_id = wid
         self.worker = DitherWorker(
             self.original_img, p['pixel_size'], p['threshold'], p['color'], p['method'],
             p['brightness'], p['contrast'], p['blur'], p['sharpen'],
             p['glow_radius'], p['glow_intensity'], preview=True,
             palette_name=p.get('palette_name', 'B&W'),
             custom_palette=p.get('custom_palette'))
-        self.worker.finished.connect(self._on_done)
+        self.worker.finished.connect(lambda payload, _id=wid: self._on_done(payload, _id))
         self.worker.error.connect(lambda _: None)
         self.worker.start()
 
@@ -246,14 +252,9 @@ class ImageTab(QWidget):
 
     def _stop_worker(self):
         if self.worker and self.worker.isRunning():
-            # Disconnect finished before stopping so any in-flight emission
-            # from a slow color-palette render cannot reach _on_done and
-            # briefly overwrite the canvas with a stale result (issue #8
-            # binary regression with non-B&W palettes).
-            try:
-                self.worker.finished.disconnect()
-            except RuntimeError:
-                pass  # already disconnected
+            # Retire the current worker id so its pending finished emission
+            # will be ignored by _on_done, even if it fires after we return.
+            self._worker_id = 0
             self.worker.stop()
             self.worker.quit()
             if not self.worker.wait(1500):
@@ -266,17 +267,22 @@ class ImageTab(QWidget):
         self._stop_worker()
         self.status_message.emit("processing...")
         p = self.get_params()
+        wid = next(_worker_id_counter)
+        self._worker_id = wid
         self.worker = DitherWorker(
             self.original_img, p['pixel_size'], p['threshold'], p['color'], p['method'],
             p['brightness'], p['contrast'], p['blur'], p['sharpen'],
             p['glow_radius'], p['glow_intensity'], preview=False,
             palette_name=p.get('palette_name', 'B&W'),
             custom_palette=p.get('custom_palette'))
-        self.worker.finished.connect(self._on_done)
+        self.worker.finished.connect(lambda payload, _id=wid: self._on_done(payload, _id))
         self.worker.error.connect(self._on_error)
         self.worker.start()
 
-    def _on_done(self, payload):
+    def _on_done(self, payload, worker_id: int):
+        # Drop results from any worker that is no longer current.
+        if worker_id != self._worker_id:
+            return
         img, elapsed, is_preview = payload
         if not is_preview:
             self.dithered_img = img
