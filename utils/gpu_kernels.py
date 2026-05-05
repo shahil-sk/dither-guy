@@ -16,6 +16,7 @@ to_gpu(arr)  -> array       – move ndarray to active device
 from_gpu(arr) -> np.ndarray – bring result back to host
 gpu_ordered_dither(a, tiled, t) -> array
 gpu_palette_nearest(flat, pal_lab) -> np.ndarray  (index array)
+gpu_palette_batch(frames_gpu, pal_lab) -> np.ndarray  (N,H,W,3 uint8)
 gpu_rgb_to_lab(r_device)    -> array
 """
 
@@ -188,6 +189,43 @@ def gpu_palette_nearest(flat, pal_lab: np.ndarray) -> np.ndarray:
         results.append(from_gpu(xp.argmin(dists, axis=1)))
 
     return np.concatenate(results)
+
+
+def gpu_palette_batch(frames_gpu, pal_lab: np.ndarray) -> np.ndarray:
+    """Map every pixel in a batch of frames to its nearest palette colour.
+
+    Parameters
+    ----------
+    frames_gpu : device array, shape (B, H, W, 3) uint8
+        Already on device.  CPU backend accepts plain np.ndarray.
+    pal_lab : np.ndarray, shape (K, 3) float32
+        Palette in L*a*b* space (host array; cached on device automatically).
+
+    Returns
+    -------
+    np.ndarray, shape (B, H, W, 3) uint8  -- always a HOST array.
+
+    Notes
+    -----
+    Internally the (B, H, W, 3) volume is flattened to (B*H*W, 3), processed
+    via gpu_palette_nearest in pixel-chunks, then reshaped back.  One PCIe
+    upload (frames) + one download (result) for the whole batch.
+    """
+    xp = _active_np()
+    B, H, W, C = frames_gpu.shape
+
+    pal_rgb = pal_lab  # caller passes pre-built RGB palette for recolouring
+    # Flatten to pixel list
+    flat = frames_gpu.reshape(B * H * W, C)          # device array
+
+    # Nearest-palette index for every pixel (returns HOST array)
+    indices = gpu_palette_nearest(flat, pal_lab)      # (B*H*W,) int host
+
+    # Map indices -> RGB colours using the host palette colours
+    # pal_lab here is actually the RGB palette passed in by the caller
+    out_flat = pal_lab[indices]                        # (B*H*W, 3) host
+    out = out_flat.reshape(B, H, W, C).astype(np.uint8)
+    return out
 
 
 def _cpu_rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
