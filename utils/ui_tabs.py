@@ -79,15 +79,13 @@ class ImageTab(QWidget):
             b.clicked.connect(slot); b.setMinimumHeight(28); b.setToolTip(tip)
             bl1.addWidget(b); return b
 
-        # mbt("▶ Open",   self.open_file, accent=True, tip="Ctrl+O")
-        # mbt("▼ Save",   self.save_file, tip="Ctrl+S")
         mbt("◑ Invert", self.invert)
         mbt("↺ L", self.rotate_left)
         mbt("↻ R", self.rotate_right),
         mbt("↔ H", self.flip_h)
         mbt("↕ V", self.flip_v),
         mbt("✂ Crop", self.crop)
-        
+
         bl1.addWidget(vsep())
         self.hist_cb = QCheckBox("Histogram")
         self.hist_cb.stateChanged.connect(lambda s: self.histogram.setVisible(bool(s)))
@@ -108,23 +106,6 @@ class ImageTab(QWidget):
             f"font-size:10px; font-family:{_MONO_FONT}; padding:2px 7px;")
         bl1.addWidget(self.undo_btn)
         layout.addWidget(bar1)
-
-        # # Transform bar
-        # bar2 = QWidget()
-        # bar2.setStyleSheet(f"background:{_P1}; border-top:1px solid {_P4};")
-        # bl2 = QHBoxLayout(bar2); bl2.setContentsMargins(8, 3, 8, 3); bl2.setSpacing(3)
-        # for label, slot in [
-        #     ("↺ L", self.rotate_left), ("↻ R", self.rotate_right),
-        #     ("↔ H", self.flip_h),      ("↕ V", self.flip_v),
-        #     ("✂ Crop", self.crop),
-        # ]:
-        #     b = QPushButton(label); b.clicked.connect(slot)
-        #     b.setMinimumHeight(22)
-        #     b.setStyleSheet(f"font-size:10px; font-family:{_MONO_FONT}; padding:2px 7px;")
-        #     bl2.addWidget(b)
-        # bl2.addStretch()
-
-        # layout.addWidget(bar2)
 
     # Drag & drop
     def dragEnterEvent(self, e):
@@ -265,10 +246,20 @@ class ImageTab(QWidget):
 
     def _stop_worker(self):
         if self.worker and self.worker.isRunning():
-            self.worker.stop(); self.worker.quit()
+            # Disconnect finished before stopping so any in-flight emission
+            # from a slow color-palette render cannot reach _on_done and
+            # briefly overwrite the canvas with a stale result (issue #8
+            # binary regression with non-B&W palettes).
+            try:
+                self.worker.finished.disconnect()
+            except RuntimeError:
+                pass  # already disconnected
+            self.worker.stop()
+            self.worker.quit()
             if not self.worker.wait(1500):
                 self.worker.terminate(); self.worker.wait(400)
-            self.worker.deleteLater(); self.worker = None
+            self.worker.deleteLater()
+            self.worker = None
 
     def process(self):
         if self.original_img is None: return
@@ -352,13 +343,8 @@ class VideoTab(QWidget):
         bar = QWidget()
         bar.setStyleSheet(f"background:{_P0}; border-top:1px solid {_G3};")
         bl = QHBoxLayout(bar); bl.setContentsMargins(8, 5, 8, 5); bl.setSpacing(5)
-        # btn_open = QPushButton("▶ Open Video"); btn_open.setObjectName("accent")
-        # btn_open.clicked.connect(self.open_file); btn_open.setMinimumHeight(28)
-        # bl.addWidget(btn_open)
         self.play_btn = QPushButton("▶ Play"); self.play_btn.clicked.connect(self.toggle_play)
         self.play_btn.setEnabled(False); self.play_btn.setMinimumHeight(28); bl.addWidget(self.play_btn)
-        # btn_exp = QPushButton("▼ Export"); btn_exp.clicked.connect(self.export_video)
-        # btn_exp.setMinimumHeight(28); bl.addWidget(btn_exp)
         bl.addStretch(); layout.addWidget(bar)
 
         if not _CV2:
