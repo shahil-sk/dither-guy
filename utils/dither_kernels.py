@@ -169,11 +169,6 @@ def _palette_ed_vectorised(
     coeffs: list[tuple],
     on_device: bool = False,
 ) -> np.ndarray:
-    """Row-by-row vectorised colour error diffusion.
-
-    If on_device=True, `arr` rows are passed as device slices to
-    _nearest_palette_indices without re-uploading.
-    """
     h, w, _ = arr.shape
     out = arr.copy()
 
@@ -209,7 +204,6 @@ def palette_dither(image: Image.Image, palette: list[tuple],
                    method: str = "Floyd-Steinberg",
                    threshold: float = 128.0,
                    use_gpu: bool = False) -> Image.Image:
-    """High-quality colour error-diffusion dither -- fully vectorised."""
     arr     = np.array(image.convert("RGB"), dtype=np.float32)
     pal     = np.asarray(palette, dtype=np.float32)
     pal_lab = _get_pal_lab(pal)
@@ -219,7 +213,6 @@ def palette_dither(image: Image.Image, palette: list[tuple],
 
 
 def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image:
-    """Ordered dither + GPU palette snap. Kept for reference / future debug use."""
     arr  = np.array(image.convert("RGB"), dtype=np.float32)
     pal  = np.asarray(palette, dtype=np.float32)
     h, w = arr.shape[:2]
@@ -706,7 +699,6 @@ def apply_dither(
     is_bw    = (palette == PALETTES["B&W"])
     effective_pixel = max(1, pixel_size * (2 if preview else 1))
 
-    # Decide once whether to use GPU for this image
     use_gpu = (
         GPU_BACKEND == "cuda" and
         img.width * img.height > USE_GPU_THRESHOLD
@@ -736,7 +728,6 @@ def apply_dither(
     h, w = a.shape
     t    = float(threshold)
 
-    # Single upload for the entire B&W pipeline
     if use_gpu:
         a = to_gpu(a)
 
@@ -765,14 +756,19 @@ def apply_dither(
             a = from_gpu(a)
     elif method in _BW_DISPATCH:
         if use_gpu:
-            a = from_gpu(a)  # CPU kernels need host arrays
+            a = from_gpu(a)
         a = _BW_DISPATCH[method](a, t)
     else:
         if use_gpu:
             a = from_gpu(a)
         a = np.where(a > t, 255, 0).astype(np.uint8)
 
-    img  = Image.fromarray(np.asarray(a), mode='L')
+    # Guarantee host array before PIL -- gpu_ordered_dither returns device
+    # array on CUDA; any un-landed path above would surface as
+    # "Unsupported type <class 'numpy.ndarray'>" inside Image.fromarray.
+    a = np.asarray(from_gpu(a))
+
+    img  = Image.fromarray(a, mode='L')
     img  = img.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
     img  = img.convert("RGB")
     data = np.array(img)
