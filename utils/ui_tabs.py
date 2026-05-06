@@ -400,11 +400,10 @@ class VideoTab(QWidget):
     ─────────────────
     QTimer → _next_frame() decodes raw frame on main thread (cheap: one cv2.read)
            → _show_async() spawns DitherWorker on a QThread
-    New frame arrives before worker done → abandon old worker (stop(), no wait),
-    increment _frame_id guard, stale result dropped in _on_frame_ready().
 
-    Net effect: dither cost off main thread, UI stays responsive, frame drops
-    happen at the dither stage not the decode stage.
+    New frame in before worker done → _stop_frame_worker() signals stop,
+    waits up to 800 ms, terminates if needed, then deletes.
+    _frame_id guard ensures stale results are discarded after wait.
     """
 
     status_message = Signal(str)
@@ -416,15 +415,14 @@ class VideoTab(QWidget):
         self.get_params        = get_params
         self.video_cap         = None
         self.video_path        = None
-        self.current_frame     = None   # last decoded raw PIL frame
+        self.current_frame     = None
         self.is_playing        = False
         self.export_worker     = None
         self.last_dir          = str(Path.home())
         self._total_frames     = 0
         self._seek_dragging    = False
-        # async dither state
         self._frame_worker: Optional[DitherWorker] = None
-        self._frame_id      = 0  # incremented each _show_async call; guards stale results
+        self._frame_id      = 0
         self._play_timer    = QTimer()
         self._play_timer.timeout.connect(self._next_frame)
         self._build()
@@ -529,7 +527,7 @@ class VideoTab(QWidget):
         )
         if not path:
             return
-        self._stop_frame_worker()
+        self._stop_frame_worker()  # wait for any in-flight dither before releasing cap
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
@@ -612,14 +610,12 @@ class VideoTab(QWidget):
             return
         ret, frame = self.video_cap.read()
         if not ret:
-            # end of video → loop
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             if self.is_playing:
                 self._next_frame()
             return
         pos = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
         self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        # update seek bar without re-triggering seek
         if not self._seek_dragging:
             self.seek_slider.blockSignals(True)
             self.seek_slider.setValue(max(0, pos))
@@ -630,19 +626,26 @@ class VideoTab(QWidget):
     # ── Async dither pipeline ───────────────────────────────────────────────────
 
     def _stop_frame_worker(self) -> None:
-        """Abandon in-flight frame worker without blocking."""
-        if self._frame_worker and self._frame_worker.isRunning():
-            self._frame_id = 0          # any pending result will be discarded
-            self._frame_worker.stop()   # sets _stop flag; worker checks it
-            # No wait() — let it finish in background; deleteLater cleans up
-            self._frame_worker.finished.disconnect()
-            self._frame_worker.error.disconnect()
-            self._frame_worker.deleteLater()
-            self._frame_worker = None
+        """
+        Stop in-flight frame worker and WAIT for it to finish.
+        Must be called before closeEvent and before releasing video_cap.
+        Also called at start of each new frame to cancel stale work.
+        """
+        w = self._frame_worker
+        if w is None:
+            return
+        self._frame_id = 0          # invalidate pending result
+        self._frame_worker = None   # clear ref before wait so callbacks no-op
+        if w.isRunning():
+            w.stop()                # ask worker to exit its loop
+            if not w.wait(800):     # give it 800 ms
+                w.terminate()      # force-kill if still alive
+                w.wait(300)        # wait for terminate to land
+        w.deleteLater()
 
     def _show_async(self, img: Image.Image) -> None:
-        """Spawn DitherWorker for frame; drop stale results via _frame_id guard."""
-        self._stop_frame_worker()
+        """Spawn DitherWorker for frame; stale results dropped via _frame_id."""
+        self._stop_frame_worker()   # cancel previous; waits up to 800 ms
         fid = next(_worker_id_counter)
         self._frame_id = fid
         p = self.get_params()
@@ -651,7 +654,7 @@ class VideoTab(QWidget):
             p["pixel_size"], p["threshold"], p["color"], p["method"],
             p["brightness"], p["contrast"], p["blur"], p["sharpen"],
             p["glow_radius"], p["glow_intensity"],
-            preview=True,               # skip heavy post-processing variants
+            preview=True,
             palette_name=p.get("palette_name", "B&W"),
             custom_palette=p.get("custom_palette"),
         )
@@ -662,7 +665,7 @@ class VideoTab(QWidget):
 
     def _on_frame_ready(self, payload, frame_id: int) -> None:
         if frame_id != self._frame_id:
-            return  # stale — newer frame already in flight
+            return  # stale — abandoned worker result
         img, _elapsed, _is_preview = payload
         self.canvas.set_image(pil_to_pixmap(img))
         self.canvas.setStyleSheet(f"background:{_P0};")
@@ -739,7 +742,7 @@ class VideoTab(QWidget):
 
     def closeEvent(self, event) -> None:
         self._play_timer.stop()
-        self._stop_frame_worker()
+        self._stop_frame_worker()   # blocks until dither thread exits cleanly
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
