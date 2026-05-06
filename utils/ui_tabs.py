@@ -398,12 +398,17 @@ class VideoTab(QWidget):
     """
     Playback pipeline
     ─────────────────
-    QTimer → _next_frame() decodes raw frame on main thread (cheap: one cv2.read)
-           → _show_async() spawns DitherWorker on a QThread
+    QTimer → _next_frame() decodes raw frame (main thread, cheap)
+           → _show_async() spawns DitherWorker
 
-    New frame in before worker done → _stop_frame_worker() signals stop,
-    waits up to 800 ms, terminates if needed, then deletes.
-    _frame_id guard ensures stale results are discarded after wait.
+    During playback, if previous worker still running:
+      • signal stop (non-blocking)
+      • skip spawning — current frame dropped, display stays on last rendered
+      • worker cleans itself up via finished signal → _retire_worker()
+    This keeps QTimer firing at fps rate with zero blocking.
+
+    On close / open_file: _drain_frame_worker() hard-waits up to 1 s before
+    releasing resources, preventing the SIGABRT.
     """
 
     status_message = Signal(str)
@@ -527,7 +532,7 @@ class VideoTab(QWidget):
         )
         if not path:
             return
-        self._stop_frame_worker()  # wait for any in-flight dither before releasing cap
+        self._drain_frame_worker()  # hard-wait before releasing cap
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
@@ -625,31 +630,50 @@ class VideoTab(QWidget):
 
     # ── Async dither pipeline ───────────────────────────────────────────────────
 
-    def _stop_frame_worker(self) -> None:
+    def _retire_worker(self, worker: DitherWorker) -> None:
+        """Called via finished signal on abandoned workers. Safe async cleanup."""
+        if worker is self._frame_worker:
+            # only if it somehow wasn't replaced yet
+            self._frame_worker = None
+        worker.deleteLater()
+
+    def _drain_frame_worker(self) -> None:
         """
-        Stop in-flight frame worker and WAIT for it to finish.
-        Must be called before closeEvent and before releasing video_cap.
-        Also called at start of each new frame to cancel stale work.
+        Hard-wait for in-flight worker. Use ONLY on close / open_file.
+        Blocks main thread up to 1 s, then force-terminates.
         """
         w = self._frame_worker
         if w is None:
             return
-        self._frame_id = 0          # invalidate pending result
-        self._frame_worker = None   # clear ref before wait so callbacks no-op
+        self._frame_id     = 0
+        self._frame_worker = None
         if w.isRunning():
-            w.stop()                # ask worker to exit its loop
-            if not w.wait(800):     # give it 800 ms
-                w.terminate()      # force-kill if still alive
-                w.wait(300)        # wait for terminate to land
+            w.stop()
+            if not w.wait(1000):
+                w.terminate()
+                w.wait(300)
         w.deleteLater()
 
     def _show_async(self, img: Image.Image) -> None:
-        """Spawn DitherWorker for frame; stale results dropped via _frame_id."""
-        self._stop_frame_worker()   # cancel previous; waits up to 800 ms
+        """
+        Non-blocking frame dispatch.
+        If previous worker still running: signal stop, skip this frame.
+        Worker self-cleans via _retire_worker on finish.
+        """
+        w = self._frame_worker
+        if w is not None and w.isRunning():
+            # previous dither still in progress — signal it to stop,
+            # let it clean up via finished → _retire_worker, skip this frame
+            self._frame_id = 0
+            self._frame_worker = None
+            w.stop()
+            w.finished.connect(lambda _pl, _w=w: self._retire_worker(_w))
+            return  # drop frame — timer will deliver the next one
+
         fid = next(_worker_id_counter)
         self._frame_id = fid
         p = self.get_params()
-        w = DitherWorker(
+        new_w = DitherWorker(
             img,
             p["pixel_size"], p["threshold"], p["color"], p["method"],
             p["brightness"], p["contrast"], p["blur"], p["sharpen"],
@@ -658,14 +682,18 @@ class VideoTab(QWidget):
             palette_name=p.get("palette_name", "B&W"),
             custom_palette=p.get("custom_palette"),
         )
-        w.finished.connect(lambda pl, _fid=fid: self._on_frame_ready(pl, _fid))
-        w.error.connect(lambda msg: self.status_message.emit(f"frame err: {msg}"))
-        self._frame_worker = w
-        w.start()
+        new_w.finished.connect(lambda pl, _fid=fid: self._on_frame_ready(pl, _fid))
+        new_w.error.connect(lambda msg: self.status_message.emit(f"frame err: {msg}"))
+        self._frame_worker = new_w
+        new_w.start()
 
     def _on_frame_ready(self, payload, frame_id: int) -> None:
         if frame_id != self._frame_id:
-            return  # stale — abandoned worker result
+            # stale result from an abandoned worker — clean it up
+            if self._frame_worker is not None:
+                pass  # newer worker owns the slot
+            return
+        self._frame_worker = None  # slot free for next frame
         img, _elapsed, _is_preview = payload
         self.canvas.set_image(pil_to_pixmap(img))
         self.canvas.setStyleSheet(f"background:{_P0};")
@@ -742,7 +770,7 @@ class VideoTab(QWidget):
 
     def closeEvent(self, event) -> None:
         self._play_timer.stop()
-        self._stop_frame_worker()   # blocks until dither thread exits cleanly
+        self._drain_frame_worker()  # hard-wait — safe to destroy after
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
