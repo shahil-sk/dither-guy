@@ -486,12 +486,6 @@ else:
                 a[y+1]             = np.clip(a[y+1]           + e     * _w8, 0, 255)
                 if w > 1: a[y+1, 1:]  = np.clip(a[y+1, 1:]  + e[:-1] * _w4, 0, 255)
                 if w > 2: a[y+1, 2:]  = np.clip(a[y+1, 2:]  + e[:-2] * _w2, 0, 255)
-            if y+2 < h:
-                if w > 2: a[y+2, :-2] = np.clip(a[y+2, :-2] + e[2:] * _w1, 0, 255)
-                if w > 1: a[y+2, :-1] = np.clip(a[y+2, :-1] + e[1:] * _w2, 0, 255)
-                a[y+2]             = np.clip(a[y+2]           + e     * _w5, 0, 255)
-                if w > 1: a[y+2, 1:]  = np.clip(a[y+2, 1:]  + e[:-1] * _w2, 0, 255)
-                if w > 2: a[y+2, 2:]  = np.clip(a[y+2, 2:]  + e[:-2] * _w1, 0, 255)
             a[y] = nw
         return np.clip(a, 0, 255).astype(np.uint8)
 
@@ -709,8 +703,16 @@ def apply_dither(
         sw  = max(1, rgb.width  // effective_pixel)
         sh  = max(1, rgb.height // effective_pixel)
         rgb = rgb.resize((sw, sh), Image.NEAREST)
-        result = palette_dither(rgb, palette, method=method, threshold=threshold,
-                                use_gpu=use_gpu)
+
+        # preview=True means video playback — use fast Bayer-ordered palette
+        # mapping (fully vectorised, ~5 ms) instead of error-diffusion row loop
+        # (~200-500 ms). Error-diffusion only on still images and export.
+        if preview:
+            result = palette_dither_fast(rgb, palette)
+        else:
+            result = palette_dither(rgb, palette, method=method,
+                                    threshold=threshold, use_gpu=use_gpu)
+
         result = result.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
         data   = np.array(result)
         data   = _apply_replace_color(data, replace_color)
