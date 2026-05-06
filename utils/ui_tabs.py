@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QScrollArea, QCheckBox, QFileDialog, QMessageBox,
-    QProgressBar,
+    QProgressBar, QSlider,
 )
 
 from .constants import _MAX_PIXELS, _HISTORY_LIMIT, _DEBOUNCE_MS
@@ -402,14 +402,16 @@ class VideoTab(QWidget):
 
     def __init__(self, get_params):
         super().__init__()
-        self.get_params     = get_params
-        self.video_cap      = None
-        self.video_path     = None
-        self.current_frame  = None
-        self.is_playing     = False
-        self.export_worker  = None
-        self.last_dir       = str(Path.home())
-        self._play_timer    = QTimer()
+        self.get_params        = get_params
+        self.video_cap         = None
+        self.video_path        = None
+        self.current_frame     = None
+        self.is_playing        = False
+        self.export_worker     = None
+        self.last_dir          = str(Path.home())
+        self._total_frames     = 0
+        self._seek_dragging    = False  # suppress frame updates while slider dragged
+        self._play_timer       = QTimer()
         self._play_timer.timeout.connect(self._next_frame)
         self._build()
 
@@ -437,22 +439,60 @@ class VideoTab(QWidget):
         scroll.setWidget(self.canvas)
         layout.addWidget(scroll, stretch=1)
 
+        # ── Seek bar ────────────────────────────────────────────────────────────────
+        seek_row = QWidget()
+        seek_row.setStyleSheet(f"background:{_P0};")
+        seek_layout = QHBoxLayout(seek_row)
+        seek_layout.setContentsMargins(8, 2, 8, 2)
+        seek_layout.setSpacing(6)
+
+        self.seek_slider = QSlider(Qt.Horizontal)
+        self.seek_slider.setMinimum(0)
+        self.seek_slider.setMaximum(0)
+        self.seek_slider.setValue(0)
+        self.seek_slider.setEnabled(False)
+        self.seek_slider.setToolTip("Seek")
+        # pause while dragging, seek on release
+        self.seek_slider.sliderPressed.connect(self._seek_press)
+        self.seek_slider.sliderReleased.connect(self._seek_release)
+        seek_layout.addWidget(self.seek_slider, stretch=1)
+
+        self.frame_lbl = QLabel("0 / 0")
+        self.frame_lbl.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:10px; color:{_FG3};"
+            "min-width:72px;"
+        )
+        self.frame_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        seek_layout.addWidget(self.frame_lbl)
+        layout.addWidget(seek_row)
+
+        # ── Export progress bar ─────────────────────────────────────────────────
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setFixedHeight(3)
         self.progress_bar.setTextVisible(False)
         layout.addWidget(self.progress_bar)
 
+        # ── Control bar ──────────────────────────────────────────────────────────
         bar = QWidget()
         bar.setStyleSheet(f"background:{_P0}; border-top:1px solid {_G3};")
         bl  = QHBoxLayout(bar)
         bl.setContentsMargins(8, 5, 8, 5)
         bl.setSpacing(5)
-        self.play_btn = QPushButton("▶ Play")
-        self.play_btn.clicked.connect(self.toggle_play)
-        self.play_btn.setEnabled(False)
-        self.play_btn.setMinimumHeight(28)
-        bl.addWidget(self.play_btn)
+
+        def _cbtn(label: str, slot, tip: str = "") -> QPushButton:
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            b.setEnabled(False)
+            b.setMinimumHeight(28)
+            if tip:
+                b.setToolTip(tip)
+            bl.addWidget(b)
+            return b
+
+        self.step_back_btn = _cbtn("⧏", self.step_back,  tip="Step back one frame")
+        self.play_btn      = _cbtn("▶ Play", self.toggle_play)
+        self.step_fwd_btn  = _cbtn("⧐", self.step_forward, tip="Step forward one frame")
         bl.addStretch()
         layout.addWidget(bar)
 
@@ -486,11 +526,17 @@ class VideoTab(QWidget):
             return
         self.video_cap  = cap
         self.video_path = path
-        fps   = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.last_dir = str(Path(path).parent)
-        self.info_lbl.setText(f"{Path(path).name} · {total} frames @ {fps:.1f} fps")
-        self.play_btn.setEnabled(True)
+        fps             = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        self._total_frames = max(1, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
+        self.last_dir   = str(Path(path).parent)
+        self.info_lbl.setText(
+            f"{Path(path).name} · {self._total_frames} frames @ {fps:.1f} fps"
+        )
+        # enable controls
+        for w in (self.play_btn, self.step_back_btn, self.step_fwd_btn):
+            w.setEnabled(True)
+        self.seek_slider.setMaximum(self._total_frames - 1)
+        self.seek_slider.setEnabled(True)
         self.status_message.emit(f"loaded {Path(path).name}")
         self._next_frame()
 
@@ -509,6 +555,45 @@ class VideoTab(QWidget):
             self.play_btn.setText("⏸ Pause")
             self._play_timer.start(max(1, int(1000 / fps)))
 
+    def step_back(self) -> None:
+        if not self.video_cap:
+            return
+        was_playing = self.is_playing
+        if was_playing:
+            self.toggle_play()
+        pos = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
+        self._seek_to(max(0, pos - 2))  # -2: cap already advanced past current
+        if was_playing:
+            self.toggle_play()
+
+    def step_forward(self) -> None:
+        if not self.video_cap:
+            return
+        was_playing = self.is_playing
+        if was_playing:
+            self.toggle_play()
+        self._next_frame()
+        if was_playing:
+            self.toggle_play()
+
+    def _seek_press(self) -> None:
+        self._seek_dragging = True
+        if self.is_playing:
+            self._play_timer.stop()  # pause timer while scrubbing; don't toggle state
+
+    def _seek_release(self) -> None:
+        self._seek_dragging = False
+        self._seek_to(self.seek_slider.value())
+        if self.is_playing:
+            fps = self.video_cap.get(cv2.CAP_PROP_FPS) or 25.0
+            self._play_timer.start(max(1, int(1000 / fps)))
+
+    def _seek_to(self, frame_idx: int) -> None:
+        if not self.video_cap:
+            return
+        self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        self._next_frame()
+
     def _next_frame(self) -> None:
         if not self.video_cap or not self.video_cap.isOpened():
             return
@@ -518,8 +603,15 @@ class VideoTab(QWidget):
             if self.is_playing:
                 self._next_frame()
             return
+        pos = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
         self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         self._show(self.current_frame)
+        # update seek bar without triggering seek
+        if not self._seek_dragging:
+            self.seek_slider.blockSignals(True)
+            self.seek_slider.setValue(max(0, pos))
+            self.seek_slider.blockSignals(False)
+        self.frame_lbl.setText(f"{max(0, pos) + 1} / {self._total_frames}")
 
     def _show(self, img: Image.Image) -> None:
         p = self.get_params()
@@ -587,7 +679,7 @@ class VideoTab(QWidget):
         self.progress_bar.setVisible(False)
         self.status_message.emit("export complete")
         if self.export_worker is not None:
-            self.export_worker.deleteLater()  # safe async delete — don't drop ref while thread teardown in progress
+            self.export_worker.deleteLater()  # safe async delete
             self.export_worker = None
         if self.video_cap:
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
