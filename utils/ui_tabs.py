@@ -569,7 +569,7 @@ class VideoTab(QWidget):
             lambda img: self.canvas.set_image(pil_to_pixmap(img))
         )
         self.export_worker.progress.connect(self._on_progress)
-        self.export_worker.finished.connect(self._on_export_done)
+        self.export_worker.export_done.connect(self._on_export_done)
         self.export_worker.error.connect(
             lambda msg: QMessageBox.critical(self, "Export Error", msg)
         )
@@ -584,14 +584,14 @@ class VideoTab(QWidget):
         self.status_message.emit(f"exporting {cur}/{total} frames")
 
     def _on_export_done(self) -> None:
-        if self.export_worker is None:
-            return
-        self.export_worker = None
         self.progress_bar.setVisible(False)
         self.status_message.emit("export complete")
-        QMessageBox.information(self, "Done", "Video exported.")
+        if self.export_worker is not None:
+            self.export_worker.deleteLater()  # safe async delete — don't drop ref while thread teardown in progress
+            self.export_worker = None
         if self.video_cap:
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        QMessageBox.information(self, "Done", "Video exported.")
 
     # ── Zoom proxy (label update handled by DitherGuy._update_zoom_lbl) ─────
 

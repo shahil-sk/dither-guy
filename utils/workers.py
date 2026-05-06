@@ -130,7 +130,7 @@ class _VideoExportBase(QThread):
 class VideoExportWorker(_VideoExportBase):
     frame_ready = Signal(object)
     progress    = Signal(int, int)
-    finished    = Signal()
+    export_done = Signal()  # renamed from 'finished' to avoid shadowing QThread.finished
 
     def run(self):
         if not _CV2:
@@ -199,7 +199,7 @@ class VideoExportWorker(_VideoExportBase):
                     if last_dithered is not None and count % max(1, BATCH) == 0:
                         self.frame_ready.emit(last_dithered)
 
-            self.finished.emit()
+            self.export_done.emit()
         except Exception as exc:
             self.error.emit(str(exc))
         finally:
@@ -211,7 +211,7 @@ class GifExportWorker(_VideoExportBase):
     """Export a dithered animated GIF from a video file."""
     frame_ready = Signal(object)
     progress    = Signal(int, int)
-    finished    = Signal()
+    export_done = Signal()  # renamed from 'finished' to avoid shadowing QThread.finished
 
     def run(self):
         if not _CV2:
@@ -254,7 +254,7 @@ class GifExportWorker(_VideoExportBase):
                     duration=duration_ms,
                     optimize=False,
                 )
-            self.finished.emit()
+            self.export_done.emit()
         except Exception as exc:
             self.error.emit(str(exc))
         finally:
