@@ -659,15 +659,15 @@ class VideoTab(QWidget):
         Non-blocking frame dispatch.
         If previous worker still running: signal stop, skip this frame.
         Worker self-cleans via _retire_worker on finish.
+        Do NOT touch _frame_id on drop — only update when launching new worker.
         """
         w = self._frame_worker
         if w is not None and w.isRunning():
             # previous dither still in progress — signal it to stop,
             # let it clean up via finished → _retire_worker, skip this frame
-            self._frame_id = 0
-            self._frame_worker = None
             w.stop()
             w.finished.connect(lambda _pl, _w=w: self._retire_worker(_w))
+            self._frame_worker = None
             return  # drop frame — timer will deliver the next one
 
         fid = next(_worker_id_counter)
