@@ -51,6 +51,52 @@ def adjust(img: Image.Image, brightness: float, contrast: float,
     return img
 
 
+def _apply_saturation(img: Image.Image, factor: float) -> Image.Image:
+    """factor 0=grayscale, 1=unchanged, 2=double."""
+    if factor == 1.0:
+        return img
+    return ImageEnhance.Color(img.convert("RGB")).enhance(factor)
+
+
+def _apply_hue_rotate(img: Image.Image, degrees: int) -> Image.Image:
+    """Rotate hue by `degrees` (0-359)."""
+    if degrees == 0:
+        return img
+    import colorsys
+    rgb = img.convert("RGB")
+    arr = np.array(rgb, dtype=np.float32) / 255.0
+    h_shift = degrees / 360.0
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+    # vectorised RGB -> HLS -> rotate H -> RGB
+    flat_r = r.ravel(); flat_g = g.ravel(); flat_b = b.ravel()
+    out = np.empty((flat_r.size, 3), dtype=np.float32)
+    for i in range(flat_r.size):
+        h, l, s = colorsys.rgb_to_hls(flat_r[i], flat_g[i], flat_b[i])
+        h = (h + h_shift) % 1.0
+        nr, ng, nb = colorsys.hls_to_rgb(h, l, s)
+        out[i, 0] = nr; out[i, 1] = ng; out[i, 2] = nb
+    result = (out.reshape(arr.shape) * 255).clip(0, 255).astype(np.uint8)
+    return Image.fromarray(result, "RGB")
+
+
+def _apply_denoise(img: Image.Image, strength: int) -> Image.Image:
+    """strength 0=off, 1-5 mapped to MedianFilter size 3-11."""
+    if strength <= 0:
+        return img
+    size = max(3, min(11, 2 * strength + 1))
+    if size % 2 == 0:
+        size += 1
+    return img.filter(ImageFilter.MedianFilter(size=size))
+
+
+def _apply_smooth(img: Image.Image, strength: int) -> Image.Image:
+    """strength 0=off, 1-5 mapped to GaussianBlur radius 0.5-2.5."""
+    if strength <= 0:
+        return img
+    radius = strength * 0.5
+    return img.filter(ImageFilter.GaussianBlur(radius=radius))
+
+
 def apply_glow(img: Image.Image, radius: float, intensity: float) -> Image.Image:
     if radius <= 0 or intensity <= 0:
         return img
@@ -75,7 +121,6 @@ _LAB_KAPPA = np.float32(903.3)
 
 
 def _rgb_to_lab_batch(rgb: np.ndarray) -> np.ndarray:
-    """Vectorised sRGB -> CIE-L*a*b* for array (...,3) float32 [0-255] on CPU."""
     r    = rgb.astype(np.float32) / np.float32(255.0)
     mask = r > np.float32(0.04045)
     r    = np.where(mask,
@@ -106,13 +151,12 @@ def _get_pal_lab(pal: np.ndarray) -> np.ndarray:
     return _PAL_LAB_CACHE[key]
 
 
-USE_GPU_THRESHOLD = 1_000_000  # pixels
+USE_GPU_THRESHOLD = 1_000_000
 
 
 def _nearest_palette_indices(pixels, pal: np.ndarray,
                               pal_lab: np.ndarray,
                               on_device: bool = False) -> np.ndarray:
-    """Nearest palette index per pixel using Lab distance (accurate, for stills/export)."""
     if on_device:
         return gpu_palette_nearest(pixels, pal_lab)
     pix_lab = _rgb_to_lab_batch(np.asarray(pixels))
@@ -122,18 +166,13 @@ def _nearest_palette_indices(pixels, pal: np.ndarray,
 
 
 def _nearest_palette_indices_rgb(pixels: np.ndarray, pal: np.ndarray) -> np.ndarray:
-    """Nearest palette index per pixel using RGB squared distance (fast, for preview).
-
-    Skips Lab conversion entirely — ~3x faster, imperceptible at video preview res.
-    """
-    # pixels: (N, 3) float32  pal: (K, 3) float32
-    diff  = pixels[:, np.newaxis, :] - pal[np.newaxis, :, :]   # (N, K, 3)
-    dists = np.einsum('nkc,nkc->nk', diff, diff)                # (N, K)
+    diff  = pixels[:, np.newaxis, :] - pal[np.newaxis, :, :]
+    dists = np.einsum('nkc,nkc->nk', diff, diff)
     return np.argmin(dists, axis=1)
 
 
 # ---------------------------------------------------------------------------
-# Error-diffusion coefficient tables (dy, dx, weight) -- weights pre-divided
+# Error-diffusion coefficient tables
 # ---------------------------------------------------------------------------
 
 _COEFF_TABLES: dict[str, list[tuple]] = {
@@ -158,7 +197,7 @@ _COEFF_TABLES: dict[str, list[tuple]] = {
 
 
 # ---------------------------------------------------------------------------
-# Core colour error-diffusion -- fully vectorised, zero Python pixel loop
+# Core colour error-diffusion
 # ---------------------------------------------------------------------------
 
 def _palette_ed_vectorised(
@@ -212,11 +251,6 @@ def palette_dither(image: Image.Image, palette: list[tuple],
 
 
 def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image:
-    """Bayer-ordered palette dither for video preview.
-
-    Uses RGB squared distance instead of Lab for ~3x faster nearest-colour
-    lookup. Perceptually fine at preview resolution.
-    """
     arr  = np.array(image.convert("RGB"), dtype=np.float32)
     pal  = np.asarray(palette, dtype=np.float32)
     h, w = arr.shape[:2]
@@ -688,8 +722,23 @@ def apply_dither(
     preview: bool = False,
     palette_name: str = "B&W",
     custom_palette: Optional[list] = None,
+    saturation:   float = 1.0,
+    hue_rotate:   int   = 0,
+    pre_denoise:  int   = 0,
+    pre_smooth:   int   = 0,
+    post_denoise: int   = 0,
+    post_smooth:  int   = 0,
 ) -> Image.Image:
+    # --- pre-dither adjustments ---
     img = adjust(img, brightness, contrast, blur, sharpen)
+    if saturation != 1.0:
+        img = _apply_saturation(img, saturation)
+    if hue_rotate:
+        img = _apply_hue_rotate(img, hue_rotate)
+    if pre_denoise:
+        img = _apply_denoise(img, pre_denoise)
+    if pre_smooth:
+        img = _apply_smooth(img, pre_smooth)
 
     palette  = custom_palette if (custom_palette and len(custom_palette) >= 2) \
                else PALETTES.get(palette_name, PALETTES["B&W"])
@@ -707,10 +756,6 @@ def apply_dither(
         sh  = max(1, rgb.height // effective_pixel)
         rgb = rgb.resize((sw, sh), Image.NEAREST)
 
-        # preview=True means video playback -- use fast Bayer-ordered palette
-        # mapping (RGB distance, fully vectorised, ~4 ms) instead of
-        # error-diffusion row loop (~200-500 ms).
-        # Error-diffusion + Lab distance only on still images and export.
         if preview:
             result = palette_dither_fast(rgb, palette)
         else:
@@ -723,6 +768,11 @@ def apply_dither(
         result = Image.fromarray(data)
         if glow_radius > 0 and glow_intensity > 0:
             result = apply_glow(result, glow_radius, glow_intensity)
+        # --- post-dither filters ---
+        if post_denoise:
+            result = _apply_denoise(result, post_denoise)
+        if post_smooth:
+            result = _apply_smooth(result, post_smooth)
         return result
 
     # -- B&W path --
@@ -780,5 +830,11 @@ def apply_dither(
 
     if glow_radius > 0 and glow_intensity > 0:
         img = apply_glow(img, glow_radius, glow_intensity)
+
+    # --- post-dither filters ---
+    if post_denoise:
+        img = _apply_denoise(img, post_denoise)
+    if post_smooth:
+        img = _apply_smooth(img, post_smooth)
 
     return img
