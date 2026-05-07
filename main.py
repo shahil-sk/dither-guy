@@ -208,7 +208,7 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     app = QApplication(sys.argv)
-    app.setApplicationName("Dither Man")
+    app.setApplicationName("Dither Guy")
     app.setApplicationVersion(VERSION)
     w = DitherGuy()
     w.show()
