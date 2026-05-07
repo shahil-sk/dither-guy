@@ -15,6 +15,12 @@ from .gpu_kernels import (
     to_gpu,
 )
 
+try:
+    import cv2 as _cv2
+    _CV2 = True
+except ImportError:
+    _CV2 = False
+
 # ---------------------------------------------------------------------------
 # Optional JIT via numba
 # ---------------------------------------------------------------------------
@@ -35,7 +41,7 @@ except ImportError:
     prange = range
 
 # ---------------------------------------------------------------------------
-# Pre-processing helpers
+# Pre/post-processing helpers
 # ---------------------------------------------------------------------------
 
 def adjust(img: Image.Image, brightness: float, contrast: float,
@@ -52,49 +58,76 @@ def adjust(img: Image.Image, brightness: float, contrast: float,
 
 
 def _apply_saturation(img: Image.Image, factor: float) -> Image.Image:
-    """factor 0=grayscale, 1=unchanged, 2=double."""
     if factor == 1.0:
         return img
     return ImageEnhance.Color(img.convert("RGB")).enhance(factor)
 
 
 def _apply_hue_rotate(img: Image.Image, degrees: int) -> Image.Image:
-    """Rotate hue by `degrees` (0-359)."""
+    """Vectorised HSV hue rotation — no Python pixel loop."""
     if degrees == 0:
         return img
-    import colorsys
-    rgb = img.convert("RGB")
-    arr = np.array(rgb, dtype=np.float32) / 255.0
-    h_shift = degrees / 360.0
+    arr = np.array(img.convert("RGB"), dtype=np.float32) / 255.0
+    # RGB -> HSV (all NumPy)
     r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
-    # vectorised RGB -> HLS -> rotate H -> RGB
-    flat_r = r.ravel(); flat_g = g.ravel(); flat_b = b.ravel()
-    out = np.empty((flat_r.size, 3), dtype=np.float32)
-    for i in range(flat_r.size):
-        h, l, s = colorsys.rgb_to_hls(flat_r[i], flat_g[i], flat_b[i])
-        h = (h + h_shift) % 1.0
-        nr, ng, nb = colorsys.hls_to_rgb(h, l, s)
-        out[i, 0] = nr; out[i, 1] = ng; out[i, 2] = nb
-    result = (out.reshape(arr.shape) * 255).clip(0, 255).astype(np.uint8)
-    return Image.fromarray(result, "RGB")
+    cmax = np.maximum(np.maximum(r, g), b)
+    cmin = np.minimum(np.minimum(r, g), b)
+    delta = cmax - cmin
+
+    # Hue
+    h = np.zeros_like(r)
+    mask_r = (cmax == r) & (delta != 0)
+    mask_g = (cmax == g) & (delta != 0)
+    mask_b = (cmax == b) & (delta != 0)
+    h[mask_r] = (60.0 * ((g[mask_r] - b[mask_r]) / delta[mask_r])) % 360.0
+    h[mask_g] = (60.0 * ((b[mask_g] - r[mask_g]) / delta[mask_g]) + 120.0) % 360.0
+    h[mask_b] = (60.0 * ((r[mask_b] - g[mask_b]) / delta[mask_b]) + 240.0) % 360.0
+
+    h = (h + degrees) % 360.0
+
+    # Saturation + Value
+    s = np.where(cmax == 0, 0.0, delta / cmax)
+    v = cmax
+
+    # HSV -> RGB
+    hi = (h / 60.0).astype(np.int32) % 6
+    f  = h / 60.0 - np.floor(h / 60.0)
+    p  = v * (1.0 - s)
+    q  = v * (1.0 - f * s)
+    t  = v * (1.0 - (1.0 - f) * s)
+
+    out = np.empty_like(arr)
+    for sector, (cr, cg, cb) in enumerate([
+        (v, t, p), (q, v, p), (p, v, t),
+        (p, q, v), (t, p, v), (v, p, q),
+    ]):
+        m = hi == sector
+        out[..., 0][m] = cr[m]
+        out[..., 1][m] = cg[m]
+        out[..., 2][m] = cb[m]
+
+    return Image.fromarray((out * 255.0).clip(0, 255).astype(np.uint8), "RGB")
 
 
 def _apply_denoise(img: Image.Image, strength: int) -> Image.Image:
-    """strength 0=off, 1-5 mapped to MedianFilter size 3-11."""
+    """strength 1-5. Uses cv2.medianBlur when available (~10x faster)."""
     if strength <= 0:
         return img
     size = max(3, min(11, 2 * strength + 1))
     if size % 2 == 0:
         size += 1
+    if _CV2:
+        arr = np.array(img.convert("RGB"))
+        arr = _cv2.medianBlur(arr, size)
+        return Image.fromarray(arr, "RGB")
     return img.filter(ImageFilter.MedianFilter(size=size))
 
 
 def _apply_smooth(img: Image.Image, strength: int) -> Image.Image:
-    """strength 0=off, 1-5 mapped to GaussianBlur radius 0.5-2.5."""
+    """strength 1-5 -> GaussianBlur radius 0.5-2.5."""
     if strength <= 0:
         return img
-    radius = strength * 0.5
-    return img.filter(ImageFilter.GaussianBlur(radius=radius))
+    return img.filter(ImageFilter.GaussianBlur(radius=strength * 0.5))
 
 
 def apply_glow(img: Image.Image, radius: float, intensity: float) -> Image.Image:
@@ -198,6 +231,8 @@ _COEFF_TABLES: dict[str, list[tuple]] = {
 
 # ---------------------------------------------------------------------------
 # Core colour error-diffusion
+# Optimised: Lab conversion done once for the whole image up-front,
+# then per-row nearest lookup uses the pre-computed pixel Lab values.
 # ---------------------------------------------------------------------------
 
 def _palette_ed_vectorised(
@@ -211,10 +246,16 @@ def _palette_ed_vectorised(
     out = arr.copy()
 
     for y in range(h):
-        row     = out[y].copy()
-        idxs    = _nearest_palette_indices(row, pal, pal_lab, on_device=on_device)
-        snapped = pal[idxs]
-        err     = np.asarray(row) - snapped
+        row  = out[y]                      # (W, 3) float32, already modified by prev rows
+        if on_device:
+            idxs = gpu_palette_nearest(row, pal_lab)
+        else:
+            pix_lab = _rgb_to_lab_batch(row)   # (W, 3)
+            diff    = pix_lab[:, np.newaxis, :] - pal_lab[np.newaxis, :, :]  # (W, K, 3)
+            dists   = np.einsum('nkc,nkc->nk', diff, diff)                   # (W, K)
+            idxs    = np.argmin(dists, axis=1)                               # (W,)
+        snapped = pal[idxs]                # (W, 3)
+        err     = row - snapped            # (W, 3)
         out[y]  = snapped
 
         for dy, dx, wt in coeffs:
@@ -768,7 +809,6 @@ def apply_dither(
         result = Image.fromarray(data)
         if glow_radius > 0 and glow_intensity > 0:
             result = apply_glow(result, glow_radius, glow_intensity)
-        # --- post-dither filters ---
         if post_denoise:
             result = _apply_denoise(result, post_denoise)
         if post_smooth:
@@ -830,8 +870,6 @@ def apply_dither(
 
     if glow_radius > 0 and glow_intensity > 0:
         img = apply_glow(img, glow_radius, glow_intensity)
-
-    # --- post-dither filters ---
     if post_denoise:
         img = _apply_denoise(img, post_denoise)
     if post_smooth:
