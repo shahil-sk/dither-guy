@@ -16,11 +16,28 @@ from utils.theme import THEME, _G0, _G1, _G2, _G3, _P0, _P2, _P3, _P4, _P5, _FG,
 from utils.ui_control_panel import ControlPanel
 from utils.ui_tabs import ImageTab, VideoTab
 from utils.ui_dialogs import BatchDialog
+from utils.gpu_kernels import GPU_BACKEND
 
 try:
     from utils.dither_kernels import _NUMBA
 except ImportError:
     _NUMBA = False
+
+
+def _build_info_str() -> str:
+    """Permanent one-line hardware / capability summary shown in the toolbar."""
+    gpu_tag = {
+        "cuda":   "GPU: CUDA",
+        "opencl": "GPU: OpenCL",
+        "cpu":    "GPU: off",
+    }.get(GPU_BACKEND, GPU_BACKEND)
+    jit_tag = "JIT: on" if _NUMBA else "JIT: off"
+    return (
+        f"{len(METHODS)} algo  ·  {len(PALETTES)} pal"
+        f"  ·  {_VIDEO_WORKERS}w"
+        f"  ·  {gpu_tag}"
+        f"  ·  {jit_tag}"
+    )
 
 
 class DitherGuy(QMainWindow):
@@ -41,10 +58,7 @@ class DitherGuy(QMainWindow):
         self.video_tab.status_message.connect(self._show_status)
 
         self._build_ui()
-        jit_tag = "  ·  numba JIT ⚡" if _NUMBA else ""
-        self._show_status(
-            f"ready  ·  {len(METHODS)} algorithms  ·  {len(PALETTES)} palettes"
-            f"  ·  {_VIDEO_WORKERS} workers{jit_tag}")
+        self._show_status("ready")
 
     def _show_status(self, msg: str):
         self.statusBar().showMessage(f"  {msg}")
@@ -115,6 +129,23 @@ class DitherGuy(QMainWindow):
             "padding:2px 5px; margin:3px;")
         tb.addWidget(self.zoom_lbl)
 
+        # --- permanent info badge (GPU / JIT / counts) ----------------------
+        tb.addSeparator()
+        info_lbl = QLabel(_build_info_str())
+        gpu_colour = _FG if GPU_BACKEND == "cuda" else _G1
+        info_lbl.setStyleSheet(
+            f"font-family:{_MONO_FONT}; color:{gpu_colour}; font-size:10px;"
+            f"background:{_P2}; border:1px solid {_P5}; border-radius:1px;"
+            "padding:2px 7px; margin:3px;")
+        info_lbl.setToolTip(
+            f"GPU backend: {GPU_BACKEND}\n"
+            f"Numba JIT: {'enabled' if _NUMBA else 'disabled'}\n"
+            f"Algorithms: {len(METHODS)}\n"
+            f"Palettes: {len(PALETTES)}\n"
+            f"Video workers: {_VIDEO_WORKERS}"
+        )
+        tb.addWidget(info_lbl)
+
     def _active(self):
         return self.image_tab if self.tabs.currentIndex() == 0 else self.video_tab
 
@@ -141,7 +172,7 @@ class DitherGuy(QMainWindow):
     def _actual(self):   self._active().actual();    self._update_zoom_lbl()
 
     def _update_zoom_lbl(self):
-        z = self._active().zoom_level()
+        z = self._active().zoom_level
         self.zoom_lbl.setText("fit" if z == 0 else f"{int(z * 100)}%")
 
     def closeEvent(self, event):
@@ -154,7 +185,7 @@ def main():
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
-    app.setApplicationName("Dither Guy")
+    app.setApplicationName("Dither Man")
     app.setApplicationVersion(VERSION)
     w = DitherGuy()
     w.show()
