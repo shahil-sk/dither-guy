@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import queue
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -19,6 +20,7 @@ except ImportError:
     _CV2 = False
 
 _GPU_EXPORT_BATCH = 8  # frames per GPU batch -- tune for VRAM vs latency
+_PIPELINE_SENTINEL = object()  # poison pill to stop FramePipelineWorker
 
 
 class DitherWorker(QThread):
@@ -62,6 +64,88 @@ class DitherWorker(QThread):
 
     def stop(self):
         self._mutex.lock(); self._stop = True; self._mutex.unlock()
+
+
+class FramePipelineWorker(QThread):
+    """
+    Persistent dither thread for video playback.
+
+    Replaces the old pattern of spawning a new DitherWorker QThread per frame.
+    Stays alive for the lifetime of the VideoTab; caller pushes frames via
+    push_frame() and receives results through the frame_ready signal.
+
+    Queue depth = 1 (maxsize=1): if a new frame arrives before the current
+    one is dithered, the pending frame is replaced so we always work on the
+    freshest data and never accumulate backlog lag.
+
+    Usage:
+        worker = FramePipelineWorker(get_params)
+        worker.frame_ready.connect(my_slot)
+        worker.start()
+        ...
+        worker.push_frame(pil_img, frame_id)
+        ...
+        worker.stop(); worker.wait()
+    """
+
+    frame_ready = Signal(object, int)   # (PIL.Image, frame_id)
+    error       = Signal(str)
+
+    def __init__(self, get_params):
+        super().__init__()
+        self._get_params = get_params
+        # maxsize=1: push_frame replaces stale pending frame automatically
+        self._q: queue.Queue = queue.Queue(maxsize=1)
+        self._stop = False
+
+    # ── public API ────────────────────────────────────────────────────────────
+
+    def push_frame(self, img: Image.Image, frame_id: int) -> None:
+        """Drop-in replacement for _show_async. Non-blocking, always fresh."""
+        # Drain stale item so queue never blocks the caller
+        try:
+            self._q.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            self._q.put_nowait((img, frame_id))
+        except queue.Full:
+            pass  # race: another push snuck in; fine, that one is fresher
+
+    def stop(self) -> None:
+        self._stop = True
+        # Unblock the blocking get() in run()
+        try:
+            self._q.put_nowait(_PIPELINE_SENTINEL)
+        except queue.Full:
+            pass
+
+    # ── thread body ───────────────────────────────────────────────────────────
+
+    def run(self) -> None:
+        self.setPriority(QThread.Priority.NormalPriority)
+        while not self._stop:
+            try:
+                item = self._q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if item is _PIPELINE_SENTINEL or self._stop:
+                break
+            img, frame_id = item
+            try:
+                p = self._get_params()
+                result = apply_dither(
+                    img,
+                    p["pixel_size"], p["threshold"], p["color"], p["method"],
+                    p["brightness"], p["contrast"], p["blur"], p["sharpen"],
+                    p["glow_radius"], p["glow_intensity"],
+                    preview=True,
+                    palette_name=p.get("palette_name", "B&W"),
+                    custom_palette=p.get("custom_palette"),
+                )
+                self.frame_ready.emit(result, frame_id)
+            except Exception as exc:
+                self.error.emit(f"frame pipeline error: {exc}")
 
 
 def _process_frame_worker(args):
@@ -130,7 +214,7 @@ class _VideoExportBase(QThread):
 class VideoExportWorker(_VideoExportBase):
     frame_ready = Signal(object)
     progress    = Signal(int, int)
-    export_done = Signal()  # renamed from 'finished' to avoid shadowing QThread.finished
+    export_done = Signal()
 
     def run(self):
         if not _CV2:
@@ -144,11 +228,10 @@ class VideoExportWorker(_VideoExportBase):
             fps   = cap.get(cv2.CAP_PROP_FPS) or 25.
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            # Try to resolve palette for GPU batch path
             use_gpu_batch = GPU_BACKEND == "cuda"
             pal_rgb = _resolve_palette_rgb(self._pal, self._cpal) if use_gpu_batch else None
             if pal_rgb is None:
-                use_gpu_batch = False  # B&W / unsupported palette -- fall back
+                use_gpu_batch = False
 
             BATCH = _GPU_EXPORT_BATCH if use_gpu_batch else max(1, _VIDEO_WORKERS * 2)
             count = 0
@@ -168,14 +251,11 @@ class VideoExportWorker(_VideoExportBase):
                         break
 
                     if use_gpu_batch:
-                        # --- GPU batch path -----------------------------------
-                        # Stack frames into (B, H, W, 3), one PCIe upload
-                        arr = np.stack([np.array(f) for f in frames_buf])  # (B,H,W,3)
+                        arr = np.stack([np.array(f) for f in frames_buf])
                         arr_gpu  = to_gpu(arr)
-                        arr_out  = gpu_palette_batch(arr_gpu, pal_rgb)     # host (B,H,W,3)
+                        arr_out  = gpu_palette_batch(arr_gpu, pal_rgb)
                         dithered = [Image.fromarray(arr_out[i]) for i in range(len(arr_out))]
                     else:
-                        # --- CPU thread-pool path (fallback) ------------------
                         dithered = [
                             Image.frombytes(mode, size, data)
                             for data, mode, size in executor.map(
@@ -211,7 +291,7 @@ class GifExportWorker(_VideoExportBase):
     """Export a dithered animated GIF from a video file."""
     frame_ready = Signal(object)
     progress    = Signal(int, int)
-    export_done = Signal()  # renamed from 'finished' to avoid shadowing QThread.finished
+    export_done = Signal()
 
     def run(self):
         if not _CV2:
