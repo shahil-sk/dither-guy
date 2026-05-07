@@ -10,13 +10,13 @@ from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QScrollArea, QCheckBox, QFileDialog, QMessageBox,
-    QProgressBar, QSlider,
+    QProgressBar,
 )
 
 from .constants import _MAX_PIXELS, _HISTORY_LIMIT, _DEBOUNCE_MS
 from .dither_kernels import apply_dither
 from .theme import _P0, _P1, _P5, _G3, _FG3, _RE, _MONO_FONT
-from .workers import DitherWorker, VideoExportWorker
+from .workers import DitherWorker, VideoExportWorker, FrameDitherWorker
 from .ui_widgets import ZoomableLabel, HistogramWidget, pil_to_pixmap, hsep, vsep
 
 try:
@@ -26,6 +26,20 @@ except ImportError:
     _CV2 = False
 
 _worker_id_counter = itertools.count(1)
+
+# Max long-edge pixels for preview downscale during playback.
+# Full-res used for export. Tune up/down for quality vs. speed.
+_PREVIEW_MAX_DIM = 480
+
+
+def _downscale_for_preview(img: Image.Image) -> Image.Image:
+    """Downscale img so its longest edge <= _PREVIEW_MAX_DIM. No-op if already small."""
+    w, h = img.size
+    longest = max(w, h)
+    if longest <= _PREVIEW_MAX_DIM:
+        return img
+    scale = _PREVIEW_MAX_DIM / longest
+    return img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.BILINEAR)
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +97,7 @@ class ImageTab(QWidget):
         self.histogram.setVisible(False)
         layout.addWidget(self.histogram)
 
+        # ── Toolbar bar ───────────────────────────────────────────────────────────────
         bar1 = QWidget()
         bar1.setStyleSheet(f"background:{_P0};")
         bl1 = QHBoxLayout(bar1)
@@ -378,7 +393,7 @@ class ImageTab(QWidget):
         self.status_message.emit(f"error: {msg}")
         QMessageBox.warning(self, "Processing Error", msg)
 
-    # ── Zoom proxy ─────────────────────────────────────────────────────────────────
+    # ── Zoom proxy (label update handled by DitherGuy._update_zoom_lbl) ─────
 
     def zoom_in(self)  -> None: self.canvas.zoom_in()
     def zoom_out(self) -> None: self.canvas.zoom_out()
@@ -395,40 +410,21 @@ class ImageTab(QWidget):
 # ---------------------------------------------------------------------------
 
 class VideoTab(QWidget):
-    """
-    Playback pipeline
-    ─────────────────
-    QTimer → _next_frame() decodes raw frame (main thread, cheap)
-           → _show_async() spawns DitherWorker
-
-    During playback, if previous worker still running:
-      • signal stop (non-blocking)
-      • skip spawning — current frame dropped, display stays on last rendered
-      • worker cleans itself up via finished signal → _retire_worker()
-    This keeps QTimer firing at fps rate with zero blocking.
-
-    On close / open_file: _drain_frame_worker() hard-waits up to 1 s before
-    releasing resources, preventing the SIGABRT.
-    """
-
     status_message = Signal(str)
 
     _VIDEO_FILTER = "Video (*.mp4 *.avi *.mov);;All (*.*)"
 
     def __init__(self, get_params):
         super().__init__()
-        self.get_params        = get_params
-        self.video_cap         = None
-        self.video_path        = None
-        self.current_frame     = None
-        self.is_playing        = False
-        self.export_worker     = None
-        self.last_dir          = str(Path.home())
-        self._total_frames     = 0
-        self._seek_dragging    = False
-        self._frame_worker: Optional[DitherWorker] = None
-        self._frame_id      = 0
-        self._play_timer    = QTimer()
+        self.get_params          = get_params
+        self.video_cap           = None
+        self.video_path          = None
+        self.current_frame       = None
+        self.is_playing          = False
+        self.export_worker       = None
+        self.last_dir            = str(Path.home())
+        self._frame_worker: Optional[FrameDitherWorker] = None  # async per-frame worker
+        self._play_timer         = QTimer()
         self._play_timer.timeout.connect(self._next_frame)
         self._build()
 
@@ -456,59 +452,22 @@ class VideoTab(QWidget):
         scroll.setWidget(self.canvas)
         layout.addWidget(scroll, stretch=1)
 
-        # ── Seek bar ────────────────────────────────────────────────────────────────
-        seek_row = QWidget()
-        seek_row.setStyleSheet(f"background:{_P0};")
-        seek_layout = QHBoxLayout(seek_row)
-        seek_layout.setContentsMargins(8, 2, 8, 2)
-        seek_layout.setSpacing(6)
-
-        self.seek_slider = QSlider(Qt.Horizontal)
-        self.seek_slider.setMinimum(0)
-        self.seek_slider.setMaximum(0)
-        self.seek_slider.setValue(0)
-        self.seek_slider.setEnabled(False)
-        self.seek_slider.setToolTip("Seek")
-        self.seek_slider.sliderPressed.connect(self._seek_press)
-        self.seek_slider.sliderReleased.connect(self._seek_release)
-        seek_layout.addWidget(self.seek_slider, stretch=1)
-
-        self.frame_lbl = QLabel("0 / 0")
-        self.frame_lbl.setStyleSheet(
-            f"font-family:{_MONO_FONT}; font-size:10px; color:{_FG3};"
-            "min-width:72px;"
-        )
-        self.frame_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        seek_layout.addWidget(self.frame_lbl)
-        layout.addWidget(seek_row)
-
-        # ── Export progress ─────────────────────────────────────────────────────
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setFixedHeight(3)
         self.progress_bar.setTextVisible(False)
         layout.addWidget(self.progress_bar)
 
-        # ── Control bar ──────────────────────────────────────────────────────────
         bar = QWidget()
         bar.setStyleSheet(f"background:{_P0}; border-top:1px solid {_G3};")
         bl  = QHBoxLayout(bar)
         bl.setContentsMargins(8, 5, 8, 5)
         bl.setSpacing(5)
-
-        def _cbtn(label: str, slot, tip: str = "") -> QPushButton:
-            b = QPushButton(label)
-            b.clicked.connect(slot)
-            b.setEnabled(False)
-            b.setMinimumHeight(28)
-            if tip:
-                b.setToolTip(tip)
-            bl.addWidget(b)
-            return b
-
-        self.step_back_btn = _cbtn("⧏",       self.step_back,    tip="Step back one frame")
-        self.play_btn      = _cbtn("▶ Play",   self.toggle_play)
-        self.step_fwd_btn  = _cbtn("⧐",       self.step_forward, tip="Step forward one frame")
+        self.play_btn = QPushButton("▶ Play")
+        self.play_btn.clicked.connect(self.toggle_play)
+        self.play_btn.setEnabled(False)
+        self.play_btn.setMinimumHeight(28)
+        bl.addWidget(self.play_btn)
         bl.addStretch()
         layout.addWidget(bar)
 
@@ -532,7 +491,6 @@ class VideoTab(QWidget):
         )
         if not path:
             return
-        self._drain_frame_worker()  # hard-wait before releasing cap
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
@@ -541,18 +499,13 @@ class VideoTab(QWidget):
             cap.release()
             QMessageBox.critical(self, "Error", "Cannot open video.")
             return
-        self.video_cap     = cap
-        self.video_path    = path
-        fps                = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        self._total_frames = max(1, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
-        self.last_dir      = str(Path(path).parent)
-        self.info_lbl.setText(
-            f"{Path(path).name} · {self._total_frames} frames @ {fps:.1f} fps"
-        )
-        for w in (self.play_btn, self.step_back_btn, self.step_fwd_btn):
-            w.setEnabled(True)
-        self.seek_slider.setMaximum(self._total_frames - 1)
-        self.seek_slider.setEnabled(True)
+        self.video_cap  = cap
+        self.video_path = path
+        fps   = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.last_dir = str(Path(path).parent)
+        self.info_lbl.setText(f"{Path(path).name} · {total} frames @ {fps:.1f} fps")
+        self.play_btn.setEnabled(True)
         self.status_message.emit(f"loaded {Path(path).name}")
         self._next_frame()
 
@@ -571,45 +524,6 @@ class VideoTab(QWidget):
             self.play_btn.setText("⏸ Pause")
             self._play_timer.start(max(1, int(1000 / fps)))
 
-    def step_back(self) -> None:
-        if not self.video_cap:
-            return
-        was_playing = self.is_playing
-        if was_playing:
-            self.toggle_play()
-        pos = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
-        self._seek_to(max(0, pos - 2))
-        if was_playing:
-            self.toggle_play()
-
-    def step_forward(self) -> None:
-        if not self.video_cap:
-            return
-        was_playing = self.is_playing
-        if was_playing:
-            self.toggle_play()
-        self._next_frame()
-        if was_playing:
-            self.toggle_play()
-
-    def _seek_press(self) -> None:
-        self._seek_dragging = True
-        if self.is_playing:
-            self._play_timer.stop()
-
-    def _seek_release(self) -> None:
-        self._seek_dragging = False
-        self._seek_to(self.seek_slider.value())
-        if self.is_playing:
-            fps = self.video_cap.get(cv2.CAP_PROP_FPS) or 25.0
-            self._play_timer.start(max(1, int(1000 / fps)))
-
-    def _seek_to(self, frame_idx: int) -> None:
-        if not self.video_cap:
-            return
-        self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        self._next_frame()
-
     def _next_frame(self) -> None:
         if not self.video_cap or not self.video_cap.isOpened():
             return
@@ -619,84 +533,35 @@ class VideoTab(QWidget):
             if self.is_playing:
                 self._next_frame()
             return
-        pos = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
-        self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        if not self._seek_dragging:
-            self.seek_slider.blockSignals(True)
-            self.seek_slider.setValue(max(0, pos))
-            self.seek_slider.blockSignals(False)
-        self.frame_lbl.setText(f"{max(0, pos) + 1} / {self._total_frames}")
-        self._show_async(self.current_frame)
+        raw = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        self.current_frame = raw
+        self._show(raw)
 
-    # ── Async dither pipeline ───────────────────────────────────────────────────
-
-    def _retire_worker(self, worker: DitherWorker) -> None:
-        """Called via finished signal on abandoned workers. Safe async cleanup."""
-        if worker is self._frame_worker:
-            # only if it somehow wasn't replaced yet
-            self._frame_worker = None
-        worker.deleteLater()
-
-    def _drain_frame_worker(self) -> None:
-        """
-        Hard-wait for in-flight worker. Use ONLY on close / open_file.
-        Blocks main thread up to 1 s, then force-terminates.
-        """
-        w = self._frame_worker
-        if w is None:
+    def _show(self, img: Image.Image) -> None:
+        """Async: spawn FrameDitherWorker. Drop frame if previous still running."""
+        if self._frame_worker is not None and self._frame_worker.isRunning():
+            # Previous frame still processing — drop this one to avoid blocking.
             return
-        self._frame_id     = 0
-        self._frame_worker = None
-        if w.isRunning():
-            w.stop()
-            if not w.wait(1000):
-                w.terminate()
-                w.wait(300)
-        w.deleteLater()
+        preview_img = _downscale_for_preview(img)
+        w = FrameDitherWorker(preview_img, self.get_params())
+        w.finished.connect(self._on_frame_done)
+        w.finished.connect(lambda _: w.deleteLater())
+        self._frame_worker = w
+        w.start()
 
-    def _show_async(self, img: Image.Image) -> None:
-        """
-        Non-blocking frame dispatch.
-        If previous worker still running: signal stop, skip this frame.
-        Worker self-cleans via _retire_worker on finish.
-        Do NOT touch _frame_id on drop — only update when launching new worker.
-        """
-        w = self._frame_worker
-        if w is not None and w.isRunning():
-            # previous dither still in progress — signal it to stop,
-            # let it clean up via finished → _retire_worker, skip this frame
-            w.stop()
-            w.finished.connect(lambda _pl, _w=w: self._retire_worker(_w))
-            self._frame_worker = None
-            return  # drop frame — timer will deliver the next one
-
-        fid = next(_worker_id_counter)
-        self._frame_id = fid
-        p = self.get_params()
-        new_w = DitherWorker(
-            img,
-            p["pixel_size"], p["threshold"], p["color"], p["method"],
-            p["brightness"], p["contrast"], p["blur"], p["sharpen"],
-            p["glow_radius"], p["glow_intensity"],
-            preview=True,
-            palette_name=p.get("palette_name", "B&W"),
-            custom_palette=p.get("custom_palette"),
-        )
-        new_w.finished.connect(lambda pl, _fid=fid: self._on_frame_ready(pl, _fid))
-        new_w.error.connect(lambda msg: self.status_message.emit(f"frame err: {msg}"))
-        self._frame_worker = new_w
-        new_w.start()
-
-    def _on_frame_ready(self, payload, frame_id: int) -> None:
-        if frame_id != self._frame_id:
-            # stale result from an abandoned worker — clean it up
-            if self._frame_worker is not None:
-                pass  # newer worker owns the slot
-            return
-        self._frame_worker = None  # slot free for next frame
-        img, _elapsed, _is_preview = payload
-        self.canvas.set_image(pil_to_pixmap(img))
+    def _on_frame_done(self, dith: Image.Image) -> None:
+        self.canvas.set_image(pil_to_pixmap(dith))
         self.canvas.setStyleSheet(f"background:{_P0};")
+        self._frame_worker = None
+
+    def _stop_frame_worker(self) -> None:
+        if self._frame_worker and self._frame_worker.isRunning():
+            self._frame_worker.stop()
+            if not self._frame_worker.wait(800):
+                self._frame_worker.terminate()
+                self._frame_worker.wait(200)
+            self._frame_worker.deleteLater()
+        self._frame_worker = None
 
     # ── Export ──────────────────────────────────────────────────────────────────
 
@@ -731,7 +596,7 @@ class VideoTab(QWidget):
             lambda img: self.canvas.set_image(pil_to_pixmap(img))
         )
         self.export_worker.progress.connect(self._on_progress)
-        self.export_worker.export_done.connect(self._on_export_done)
+        self.export_worker.finished.connect(self._on_export_done)
         self.export_worker.error.connect(
             lambda msg: QMessageBox.critical(self, "Export Error", msg)
         )
@@ -746,16 +611,16 @@ class VideoTab(QWidget):
         self.status_message.emit(f"exporting {cur}/{total} frames")
 
     def _on_export_done(self) -> None:
+        if self.export_worker is None:
+            return
+        self.export_worker = None
         self.progress_bar.setVisible(False)
         self.status_message.emit("export complete")
-        if self.export_worker is not None:
-            self.export_worker.deleteLater()
-            self.export_worker = None
+        QMessageBox.information(self, "Done", "Video exported.")
         if self.video_cap:
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        QMessageBox.information(self, "Done", "Video exported.")
 
-    # ── Zoom proxy ─────────────────────────────────────────────────────────────────
+    # ── Zoom proxy (label update handled by DitherGuy._update_zoom_lbl) ─────
 
     def zoom_in(self)  -> None: self.canvas.zoom_in()
     def zoom_out(self) -> None: self.canvas.zoom_out()
@@ -770,7 +635,7 @@ class VideoTab(QWidget):
 
     def closeEvent(self, event) -> None:
         self._play_timer.stop()
-        self._drain_frame_worker()  # hard-wait — safe to destroy after
+        self._stop_frame_worker()
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
