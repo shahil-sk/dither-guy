@@ -15,13 +15,8 @@ from PySide6.QtWidgets import (
 
 from .constants import _MAX_PIXELS, _HISTORY_LIMIT, _DEBOUNCE_MS
 from .dither_kernels import apply_dither
-<<<<<<< HEAD
-from .theme import _P0, _P1, _P5, _G3, _FG3, _RE, _MONO_FONT
-from .workers import DitherWorker, VideoExportWorker, FrameDitherWorker
-=======
 from .theme import _P0, _P1, _P2, _P3, _P4, _P5, _P6, _G0, _G1, _G2, _G3, _FG, _FG2, _FG3, _RE, _AE, _MONO_FONT
 from .workers import DitherWorker, VideoExportWorker
->>>>>>> 412ee4f6f6f40a079edb853625af77d608ab18e6
 from .ui_widgets import ZoomableLabel, HistogramWidget, pil_to_pixmap, hsep, vsep
 
 try:
@@ -31,20 +26,6 @@ except ImportError:
     _CV2 = False
 
 _worker_id_counter = itertools.count(1)
-
-# Max long-edge pixels for preview downscale during playback.
-# Full-res used for export. Tune up/down for quality vs. speed.
-_PREVIEW_MAX_DIM = 480
-
-
-def _downscale_for_preview(img: Image.Image) -> Image.Image:
-    """Downscale img so its longest edge <= _PREVIEW_MAX_DIM. No-op if already small."""
-    w, h = img.size
-    longest = max(w, h)
-    if longest <= _PREVIEW_MAX_DIM:
-        return img
-    scale = _PREVIEW_MAX_DIM / longest
-    return img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.BILINEAR)
 
 
 # ---------------------------------------------------------------------------
@@ -433,17 +414,6 @@ class VideoTab(QWidget):
 
     def __init__(self, get_params):
         super().__init__()
-<<<<<<< HEAD
-        self.get_params          = get_params
-        self.video_cap           = None
-        self.video_path          = None
-        self.current_frame       = None
-        self.is_playing          = False
-        self.export_worker       = None
-        self.last_dir            = str(Path.home())
-        self._frame_worker: Optional[FrameDitherWorker] = None  # async per-frame worker
-        self._play_timer         = QTimer()
-=======
         self.get_params    = get_params
         self.video_cap     = None
         self.video_path    = None
@@ -456,7 +426,6 @@ class VideoTab(QWidget):
         self._total_frames = 0
         self._scrubbing    = False     # True while user drags seek bar
         self._play_timer   = QTimer()
->>>>>>> 412ee4f6f6f40a079edb853625af77d608ab18e6
         self._play_timer.timeout.connect(self._next_frame)
         self._build()
         self.setFocusPolicy(Qt.StrongFocus)
@@ -781,43 +750,26 @@ class VideoTab(QWidget):
                 self._pause()
                 self._seek_to_frame(0)
             return
-<<<<<<< HEAD
-        raw = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        self.current_frame = raw
-        self._show(raw)
-=======
         self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         self._show(self.current_frame)
         self._update_position_ui(frame_idx)
 
     # ── Render frame ──────────────────────────────────────────────────────────
->>>>>>> 412ee4f6f6f40a079edb853625af77d608ab18e6
 
     def _show(self, img: Image.Image) -> None:
-        """Async: spawn FrameDitherWorker. Drop frame if previous still running."""
-        if self._frame_worker is not None and self._frame_worker.isRunning():
-            # Previous frame still processing — drop this one to avoid blocking.
-            return
-        preview_img = _downscale_for_preview(img)
-        w = FrameDitherWorker(preview_img, self.get_params())
-        w.finished.connect(self._on_frame_done)
-        w.finished.connect(lambda _: w.deleteLater())
-        self._frame_worker = w
-        w.start()
-
-    def _on_frame_done(self, dith: Image.Image) -> None:
-        self.canvas.set_image(pil_to_pixmap(dith))
-        self.canvas.setStyleSheet(f"background:{_P0};")
-        self._frame_worker = None
-
-    def _stop_frame_worker(self) -> None:
-        if self._frame_worker and self._frame_worker.isRunning():
-            self._frame_worker.stop()
-            if not self._frame_worker.wait(800):
-                self._frame_worker.terminate()
-                self._frame_worker.wait(200)
-            self._frame_worker.deleteLater()
-        self._frame_worker = None
+        p = self.get_params()
+        try:
+            dith = apply_dither(
+                img, p["pixel_size"], p["threshold"], p["color"], p["method"],
+                p["brightness"], p["contrast"], p["blur"], p["sharpen"],
+                p["glow_radius"], p["glow_intensity"],
+                palette_name=p.get("palette_name", "B&W"),
+                custom_palette=p.get("custom_palette"),
+            )
+            self.canvas.set_image(pil_to_pixmap(dith))
+            self.canvas.setStyleSheet(f"background:{_P0};")
+        except Exception as exc:
+            self.status_message.emit(f"frame error: {exc}")
 
     # ── Keyboard shortcuts ─────────────────────────────────────────────────────
 
@@ -926,7 +878,6 @@ class VideoTab(QWidget):
 
     def closeEvent(self, event) -> None:
         self._play_timer.stop()
-        self._stop_frame_worker()
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
