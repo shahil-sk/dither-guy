@@ -5,7 +5,7 @@
 [![GitHub downloads](https://img.shields.io/github/downloads/shahil-sk/dither-guy/total)](https://github.com/shahil-sk/dither-guy/releases)
 [![GitHub downloads (latest release)](https://img.shields.io/github/downloads/shahil-sk/dither-guy/latest/total)](https://github.com/shahil-sk/dither-guy/releases/latest)
 
-**Dither Guy** is a free and open source software inspired by [Dither Boy](https://studioaaa.com/product/dither-boy/), designed to create graphic dithering effects similar to those found on old displays and low color-depth systems.
+**Dither Man** is a free and open source software inspired by [Dither Boy](https://studioaaa.com/product/dither-boy/), designed to create graphic dithering effects similar to those found on old displays and low color-depth systems.
 
 The project focuses on providing a simple and straightforward tool for applying dithering to images and videos, preserving a controlled and retro visual aesthetic.
 
