@@ -45,7 +45,7 @@ def _build_info_str() -> str:
 class DitherGuy(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"Dither Man  v{VERSION}")
+        self.setWindowTitle(f"Dither guy  v{VERSION}")
         self.setMinimumSize(960, 620)
         self.setStyleSheet(THEME)
         self._load_icon()
@@ -107,7 +107,7 @@ class DitherGuy(QMainWindow):
         tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.addToolBar(tb)
 
-        brand = QLabel("DITHER MAN")
+        brand = QLabel("DITHER GUY")
         brand.setStyleSheet(
             f"font-family:{_MONO_FONT}; color:{_FG}; font-weight:bold;"
             "font-size:14px; letter-spacing:4px; padding:0 18px 0 6px;"
