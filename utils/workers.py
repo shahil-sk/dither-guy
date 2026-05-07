@@ -41,7 +41,7 @@ class DitherWorker(QThread):
         self._stop = False; self._mutex = QMutex()
 
     def run(self):
-        self.setPriority(QThread.Priority.LowPriority)
+        self.setPriority(QThread.Priority.NormalPriority)
         try:
             t0     = time.perf_counter()
             result = apply_dither(
