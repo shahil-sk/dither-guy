@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QLabel, QFrame, QSizePolicy, QWidget, QHBoxLayout, QSlider,
 )
 
-from .theme import _P0, _P2, _P4, _P5, _FG, _FG2, _G0, _G3, _MONO_FONT
+from .theme import _P0, _P2, _P4, _P5, _FG, _FG2, _FG3, _G0, _G3, _MONO_FONT
 
 
 # ---------------------------------------------------------------------------
@@ -20,7 +20,7 @@ from .theme import _P0, _P2, _P4, _P5, _FG, _FG2, _G0, _G3, _MONO_FONT
 # ---------------------------------------------------------------------------
 
 def pil_to_pixmap(img: Image.Image) -> QPixmap:
-    """Convert a PIL RGB image to a QPixmap without holding a reference to raw bytes."""
+    """Convert a PIL RGB image to QPixmap without holding a ref to raw bytes."""
     raw = img.tobytes("raw", "RGB")
     qimg = QImage(raw, img.width, img.height, img.width * 3, QImage.Format_RGB888).copy()
     return QPixmap.fromImage(qimg)
@@ -52,9 +52,12 @@ def vsep() -> QFrame:
 class HistogramWidget(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(48)
+        self.setFixedHeight(56)
         self._data: Optional[np.ndarray] = None
-        self.setStyleSheet(f"background:{_P2}; border-radius:3px;")
+        self.setStyleSheet(
+            f"background:{_P2}; border-top:1px solid {_P5}; border-radius:0px;"
+        )
+        self.setToolTip("Luminance histogram of processed output")
 
     def update_data(self, img: Image.Image) -> None:
         arr = np.array(img.convert("L"), dtype=np.uint8)
@@ -77,7 +80,7 @@ class HistogramWidget(QLabel):
         painter.setBrush(QBrush(grad))
         painter.setPen(Qt.NoPen)
         for i, v in enumerate(self._data):
-            bh = int((v / mx) * (h - 2))
+            bh = int((v / mx) * (h - 4))
             painter.drawRect(int(i * bw), h - bh, max(1, int(bw) - 1), bh)
         painter.end()
 
@@ -95,14 +98,19 @@ _ZOOM_MAX        = 8.00
 class ZoomableLabel(QLabel):
     def __init__(self, placeholder: str = ""):
         super().__init__(placeholder)
-        self.zoom_level: float = 0        # 0 → fit-to-widget
+        self.zoom_level: float = 0
         self.original_pixmap: Optional[QPixmap] = None
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumSize(360, 260)
         self.setScaledContents(False)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Style the drop-hint text
+        self.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:13px;"
+            f"color:{_FG3}; background:{_P0};"
+        )
 
-    # public API ──────────────────────────────────────────────────────────────
+    # public API
 
     def set_image(self, pixmap: QPixmap) -> None:
         self.original_pixmap = pixmap
@@ -113,7 +121,7 @@ class ZoomableLabel(QLabel):
     def fit(self)      -> None: self.zoom_level = 0;   self._redraw()
     def actual(self)   -> None: self.zoom_level = 1.0; self._redraw()
 
-    # internals ───────────────────────────────────────────────────────────────
+    # internals
 
     def _apply_zoom(self, base: float, factor: float) -> None:
         self.zoom_level = max(_ZOOM_MIN, min(_ZOOM_MAX, base * factor))
@@ -160,10 +168,10 @@ def make_slider(
     mx: int,
     val: int,
     fmt: str = "{v}",
+    tooltip: str = "",
 ):
     """
     Add a labelled slider row to *parent_layout*.
-
     Returns (label_widget, value_label_widget, slider_widget).
     """
     row = QWidget()
@@ -172,13 +180,18 @@ def make_slider(
     rl.setSpacing(4)
 
     lbl = QLabel(label_base)
-    lbl.setStyleSheet(f"color:{_FG}; font-size:11px; font-family:{_MONO_FONT};")
-    lbl.setFixedWidth(96)
+    lbl.setStyleSheet(
+        f"color:{_FG}; font-size:11px; font-family:{_MONO_FONT};"
+    )
+    lbl.setMinimumWidth(72)
+    lbl.setMaximumWidth(100)
+    if tooltip:
+        lbl.setToolTip(tooltip)
 
     val_lbl = QLabel(fmt.format(v=val))
     val_lbl.setStyleSheet(
-        f"color:{_FG2}; font-size:11px; font-family:{_MONO_FONT};"
-        "font-weight:bold; min-width:36px;"
+        f"color:{_G0}; font-size:11px; font-family:{_MONO_FONT};"
+        "font-weight:bold; min-width:32px;"
     )
     val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
@@ -191,7 +204,9 @@ def make_slider(
     sl.setMinimum(mn)
     sl.setMaximum(mx)
     sl.setValue(val)
-    sl.setFixedHeight(18)
+    sl.setFixedHeight(20)
+    if tooltip:
+        sl.setToolTip(tooltip)
     parent_layout.addWidget(sl)
 
     return lbl, val_lbl, sl

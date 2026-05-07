@@ -15,6 +15,12 @@ from .gpu_kernels import (
     to_gpu,
 )
 
+try:
+    import cv2 as _cv2
+    _CV2 = True
+except ImportError:
+    _CV2 = False
+
 # ---------------------------------------------------------------------------
 # Optional JIT via numba
 # ---------------------------------------------------------------------------
@@ -35,7 +41,7 @@ except ImportError:
     prange = range
 
 # ---------------------------------------------------------------------------
-# Pre-processing helpers
+# Pre/post-processing helpers
 # ---------------------------------------------------------------------------
 
 def adjust(img: Image.Image, brightness: float, contrast: float,
@@ -49,6 +55,79 @@ def adjust(img: Image.Image, brightness: float, contrast: float,
     for _ in range(int(sharpen)):
         img = img.filter(ImageFilter.SHARPEN)
     return img
+
+
+def _apply_saturation(img: Image.Image, factor: float) -> Image.Image:
+    if factor == 1.0:
+        return img
+    return ImageEnhance.Color(img.convert("RGB")).enhance(factor)
+
+
+def _apply_hue_rotate(img: Image.Image, degrees: int) -> Image.Image:
+    """Vectorised HSV hue rotation — no Python pixel loop."""
+    if degrees == 0:
+        return img
+    arr = np.array(img.convert("RGB"), dtype=np.float32) / 255.0
+    # RGB -> HSV (all NumPy)
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+    cmax = np.maximum(np.maximum(r, g), b)
+    cmin = np.minimum(np.minimum(r, g), b)
+    delta = cmax - cmin
+
+    # Hue
+    h = np.zeros_like(r)
+    mask_r = (cmax == r) & (delta != 0)
+    mask_g = (cmax == g) & (delta != 0)
+    mask_b = (cmax == b) & (delta != 0)
+    h[mask_r] = (60.0 * ((g[mask_r] - b[mask_r]) / delta[mask_r])) % 360.0
+    h[mask_g] = (60.0 * ((b[mask_g] - r[mask_g]) / delta[mask_g]) + 120.0) % 360.0
+    h[mask_b] = (60.0 * ((r[mask_b] - g[mask_b]) / delta[mask_b]) + 240.0) % 360.0
+
+    h = (h + degrees) % 360.0
+
+    # Saturation + Value
+    s = np.where(cmax == 0, 0.0, delta / cmax)
+    v = cmax
+
+    # HSV -> RGB
+    hi = (h / 60.0).astype(np.int32) % 6
+    f  = h / 60.0 - np.floor(h / 60.0)
+    p  = v * (1.0 - s)
+    q  = v * (1.0 - f * s)
+    t  = v * (1.0 - (1.0 - f) * s)
+
+    out = np.empty_like(arr)
+    for sector, (cr, cg, cb) in enumerate([
+        (v, t, p), (q, v, p), (p, v, t),
+        (p, q, v), (t, p, v), (v, p, q),
+    ]):
+        m = hi == sector
+        out[..., 0][m] = cr[m]
+        out[..., 1][m] = cg[m]
+        out[..., 2][m] = cb[m]
+
+    return Image.fromarray((out * 255.0).clip(0, 255).astype(np.uint8), "RGB")
+
+
+def _apply_denoise(img: Image.Image, strength: int) -> Image.Image:
+    """strength 1-5. Uses cv2.medianBlur when available (~10x faster)."""
+    if strength <= 0:
+        return img
+    size = max(3, min(11, 2 * strength + 1))
+    if size % 2 == 0:
+        size += 1
+    if _CV2:
+        arr = np.array(img.convert("RGB"))
+        arr = _cv2.medianBlur(arr, size)
+        return Image.fromarray(arr, "RGB")
+    return img.filter(ImageFilter.MedianFilter(size=size))
+
+
+def _apply_smooth(img: Image.Image, strength: int) -> Image.Image:
+    """strength 1-5 -> GaussianBlur radius 0.5-2.5."""
+    if strength <= 0:
+        return img
+    return img.filter(ImageFilter.GaussianBlur(radius=strength * 0.5))
 
 
 def apply_glow(img: Image.Image, radius: float, intensity: float) -> Image.Image:
@@ -75,7 +154,6 @@ _LAB_KAPPA = np.float32(903.3)
 
 
 def _rgb_to_lab_batch(rgb: np.ndarray) -> np.ndarray:
-    """Vectorised sRGB -> CIE-L*a*b* for array (...,3) float32 [0-255] on CPU."""
     r    = rgb.astype(np.float32) / np.float32(255.0)
     mask = r > np.float32(0.04045)
     r    = np.where(mask,
@@ -106,25 +184,12 @@ def _get_pal_lab(pal: np.ndarray) -> np.ndarray:
     return _PAL_LAB_CACHE[key]
 
 
-USE_GPU_THRESHOLD = 1_000_000  # pixels
-
-
-def _should_use_gpu(arr: np.ndarray) -> bool:
-    return (
-        GPU_BACKEND == "cuda" and
-        arr.size >= USE_GPU_THRESHOLD
-    )
+USE_GPU_THRESHOLD = 1_000_000
 
 
 def _nearest_palette_indices(pixels, pal: np.ndarray,
                               pal_lab: np.ndarray,
                               on_device: bool = False) -> np.ndarray:
-    """Nearest palette index per pixel.
-
-    If on_device=True, `pixels` is already a device array and gpu_palette_nearest
-    is called directly without an extra transfer.
-    Otherwise falls back to CPU einsum.
-    """
     if on_device:
         return gpu_palette_nearest(pixels, pal_lab)
     pix_lab = _rgb_to_lab_batch(np.asarray(pixels))
@@ -133,8 +198,14 @@ def _nearest_palette_indices(pixels, pal: np.ndarray,
     return np.argmin(dists, axis=1)
 
 
+def _nearest_palette_indices_rgb(pixels: np.ndarray, pal: np.ndarray) -> np.ndarray:
+    diff  = pixels[:, np.newaxis, :] - pal[np.newaxis, :, :]
+    dists = np.einsum('nkc,nkc->nk', diff, diff)
+    return np.argmin(dists, axis=1)
+
+
 # ---------------------------------------------------------------------------
-# Error-diffusion coefficient tables (dy, dx, weight) -- weights pre-divided
+# Error-diffusion coefficient tables
 # ---------------------------------------------------------------------------
 
 _COEFF_TABLES: dict[str, list[tuple]] = {
@@ -159,7 +230,9 @@ _COEFF_TABLES: dict[str, list[tuple]] = {
 
 
 # ---------------------------------------------------------------------------
-# Core colour error-diffusion -- fully vectorised, zero Python pixel loop
+# Core colour error-diffusion
+# Optimised: Lab conversion done once for the whole image up-front,
+# then per-row nearest lookup uses the pre-computed pixel Lab values.
 # ---------------------------------------------------------------------------
 
 def _palette_ed_vectorised(
@@ -173,10 +246,16 @@ def _palette_ed_vectorised(
     out = arr.copy()
 
     for y in range(h):
-        row     = out[y].copy()
-        idxs    = _nearest_palette_indices(row, pal, pal_lab, on_device=on_device)
-        snapped = pal[idxs]
-        err     = np.asarray(row) - snapped
+        row  = out[y]                      # (W, 3) float32, already modified by prev rows
+        if on_device:
+            idxs = gpu_palette_nearest(row, pal_lab)
+        else:
+            pix_lab = _rgb_to_lab_batch(row)   # (W, 3)
+            diff    = pix_lab[:, np.newaxis, :] - pal_lab[np.newaxis, :, :]  # (W, K, 3)
+            dists   = np.einsum('nkc,nkc->nk', diff, diff)                   # (W, K)
+            idxs    = np.argmin(dists, axis=1)                               # (W,)
+        snapped = pal[idxs]                # (W, 3)
+        err     = row - snapped            # (W, 3)
         out[y]  = snapped
 
         for dy, dx, wt in coeffs:
@@ -221,10 +300,9 @@ def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image
     noise = (bayer - 128.0) * 0.3
     noisy = np.clip(arr + noise[:, :, np.newaxis], 0, 255)
 
-    pal_lab = _get_pal_lab(pal)
-    flat    = noisy.reshape(-1, 3)
-    idxs    = _nearest_palette_indices(flat, pal, pal_lab)
-    result  = pal[idxs].reshape(h, w, 3)
+    flat  = noisy.reshape(-1, 3)
+    idxs  = _nearest_palette_indices_rgb(flat, pal)
+    result = pal[idxs].reshape(h, w, 3)
     return Image.fromarray(result.astype(np.uint8), mode="RGB")
 
 
@@ -486,12 +564,6 @@ else:
                 a[y+1]             = np.clip(a[y+1]           + e     * _w8, 0, 255)
                 if w > 1: a[y+1, 1:]  = np.clip(a[y+1, 1:]  + e[:-1] * _w4, 0, 255)
                 if w > 2: a[y+1, 2:]  = np.clip(a[y+1, 2:]  + e[:-2] * _w2, 0, 255)
-            if y+2 < h:
-                if w > 2: a[y+2, :-2] = np.clip(a[y+2, :-2] + e[2:] * _w1, 0, 255)
-                if w > 1: a[y+2, :-1] = np.clip(a[y+2, :-1] + e[1:] * _w2, 0, 255)
-                a[y+2]             = np.clip(a[y+2]           + e     * _w5, 0, 255)
-                if w > 1: a[y+2, 1:]  = np.clip(a[y+2, 1:]  + e[:-1] * _w2, 0, 255)
-                if w > 2: a[y+2, 2:]  = np.clip(a[y+2, 2:]  + e[:-2] * _w1, 0, 255)
             a[y] = nw
         return np.clip(a, 0, 255).astype(np.uint8)
 
@@ -691,8 +763,23 @@ def apply_dither(
     preview: bool = False,
     palette_name: str = "B&W",
     custom_palette: Optional[list] = None,
+    saturation:   float = 1.0,
+    hue_rotate:   int   = 0,
+    pre_denoise:  int   = 0,
+    pre_smooth:   int   = 0,
+    post_denoise: int   = 0,
+    post_smooth:  int   = 0,
 ) -> Image.Image:
+    # --- pre-dither adjustments ---
     img = adjust(img, brightness, contrast, blur, sharpen)
+    if saturation != 1.0:
+        img = _apply_saturation(img, saturation)
+    if hue_rotate:
+        img = _apply_hue_rotate(img, hue_rotate)
+    if pre_denoise:
+        img = _apply_denoise(img, pre_denoise)
+    if pre_smooth:
+        img = _apply_smooth(img, pre_smooth)
 
     palette  = custom_palette if (custom_palette and len(custom_palette) >= 2) \
                else PALETTES.get(palette_name, PALETTES["B&W"])
@@ -709,14 +796,23 @@ def apply_dither(
         sw  = max(1, rgb.width  // effective_pixel)
         sh  = max(1, rgb.height // effective_pixel)
         rgb = rgb.resize((sw, sh), Image.NEAREST)
-        result = palette_dither(rgb, palette, method=method, threshold=threshold,
-                                use_gpu=use_gpu)
+
+        if preview:
+            result = palette_dither_fast(rgb, palette)
+        else:
+            result = palette_dither(rgb, palette, method=method,
+                                    threshold=threshold, use_gpu=use_gpu)
+
         result = result.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
         data   = np.array(result)
         data   = _apply_replace_color(data, replace_color)
         result = Image.fromarray(data)
         if glow_radius > 0 and glow_intensity > 0:
             result = apply_glow(result, glow_radius, glow_intensity)
+        if post_denoise:
+            result = _apply_denoise(result, post_denoise)
+        if post_smooth:
+            result = _apply_smooth(result, post_smooth)
         return result
 
     # -- B&W path --
@@ -763,9 +859,6 @@ def apply_dither(
             a = from_gpu(a)
         a = np.where(a > t, 255, 0).astype(np.uint8)
 
-    # Guarantee host array before PIL -- gpu_ordered_dither returns device
-    # array on CUDA; any un-landed path above would surface as
-    # "Unsupported type <class 'numpy.ndarray'>" inside Image.fromarray.
     a = np.asarray(from_gpu(a))
 
     img  = Image.fromarray(a, mode='L')
@@ -777,5 +870,9 @@ def apply_dither(
 
     if glow_radius > 0 and glow_intensity > 0:
         img = apply_glow(img, glow_radius, glow_intensity)
+    if post_denoise:
+        img = _apply_denoise(img, post_denoise)
+    if post_smooth:
+        img = _apply_smooth(img, post_smooth)
 
     return img

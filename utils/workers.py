@@ -18,7 +18,7 @@ try:
 except ImportError:
     _CV2 = False
 
-_GPU_EXPORT_BATCH = 8  # frames per GPU batch -- tune for VRAM vs latency
+_GPU_EXPORT_BATCH = 8
 
 
 class DitherWorker(QThread):
@@ -28,7 +28,10 @@ class DitherWorker(QThread):
     def __init__(self, img, pixel_size, threshold, replace_color, method,
                  brightness, contrast, blur, sharpen,
                  glow_radius=0, glow_intensity=0, preview=False,
-                 palette_name="B&W", custom_palette=None):
+                 palette_name="B&W", custom_palette=None,
+                 saturation=1.0, hue_rotate=0,
+                 pre_denoise=0, pre_smooth=0,
+                 post_denoise=0, post_smooth=0):
         super().__init__()
         self._img  = img; self._ps = pixel_size; self._t = threshold
         self._rc   = replace_color; self._m = method
@@ -38,6 +41,12 @@ class DitherWorker(QThread):
         self._prev = preview
         self._pal  = palette_name
         self._cpal = custom_palette
+        self._sa   = saturation
+        self._hu   = hue_rotate
+        self._prd  = pre_denoise
+        self._prs  = pre_smooth
+        self._pod  = post_denoise
+        self._pos  = post_smooth
         self._stop = False; self._mutex = QMutex()
 
     def run(self):
@@ -48,7 +57,14 @@ class DitherWorker(QThread):
                 self._img, self._ps, self._t, self._rc, self._m,
                 self._br, self._co, self._bl, self._sh,
                 self._gr, self._gi, self._prev,
-                self._pal, self._cpal)
+                self._pal, self._cpal,
+                saturation=self._sa,
+                hue_rotate=self._hu,
+                pre_denoise=self._prd,
+                pre_smooth=self._prs,
+                post_denoise=self._pod,
+                post_smooth=self._pos,
+            )
             elapsed = time.perf_counter() - t0
             self._mutex.lock()
             ok = not self._stop
@@ -64,17 +80,59 @@ class DitherWorker(QThread):
         self._mutex.lock(); self._stop = True; self._mutex.unlock()
 
 
+class FrameDitherWorker(QThread):
+    finished = Signal(object)
+
+    def __init__(self, img: Image.Image, params: dict):
+        super().__init__()
+        self._img  = img
+        self._p    = params
+        self._stop = False
+        self._mutex = QMutex()
+
+    def run(self) -> None:
+        self.setPriority(QThread.Priority.LowPriority)
+        try:
+            p = self._p
+            result = apply_dither(
+                self._img,
+                p["pixel_size"], p["threshold"], p["color"], p["method"],
+                p["brightness"], p["contrast"], p["blur"], p["sharpen"],
+                p.get("glow_radius", 0), p.get("glow_intensity", 0),
+                preview=True,
+                palette_name=p.get("palette_name", "B&W"),
+                custom_palette=p.get("custom_palette"),
+                saturation=p.get("saturation", 1.0),
+                hue_rotate=p.get("hue_rotate", 0),
+                pre_denoise=p.get("pre_denoise", 0),
+                pre_smooth=p.get("pre_smooth", 0),
+                post_denoise=p.get("post_denoise", 0),
+                post_smooth=p.get("post_smooth", 0),
+            )
+            self._mutex.lock()
+            ok = not self._stop
+            self._mutex.unlock()
+            if ok:
+                self.finished.emit(result)
+        except Exception:
+            pass
+
+    def stop(self) -> None:
+        self._mutex.lock(); self._stop = True; self._mutex.unlock()
+
+
 def _process_frame_worker(args):
-    """Top-level worker function for parallel frame dithering."""
-    frame_bytes, mode, size, ps, t, rc, m, br, co, bl, sh, gr, gi, pal, cpal = args
+    frame_bytes, mode, size, ps, t, rc, m, br, co, bl, sh, gr, gi, pal, cpal, sa, hu, prd, prs, pod, pos = args
     img = Image.frombytes(mode, size, frame_bytes)
     out = apply_dither(img, ps, t, rc, m, br, co, bl, sh, gr, gi,
-                       palette_name=pal, custom_palette=cpal)
+                       palette_name=pal, custom_palette=cpal,
+                       saturation=sa, hue_rotate=hu,
+                       pre_denoise=prd, pre_smooth=prs,
+                       post_denoise=pod, post_smooth=pos)
     return out.tobytes(), out.mode, out.size
 
 
 def _resolve_palette_rgb(palette_name: str, custom_palette) -> np.ndarray | None:
-    """Return (K, 3) uint8 RGB palette array, or None for B&W / non-palette methods."""
     if custom_palette is not None:
         arr = np.array(custom_palette, dtype=np.uint8)
         return arr if arr.ndim == 2 and arr.shape[1] == 3 else None
@@ -89,13 +147,15 @@ def _resolve_palette_rgb(palette_name: str, custom_palette) -> np.ndarray | None
 
 
 class _VideoExportBase(QThread):
-    """Shared plumbing for VideoExportWorker and GifExportWorker."""
     error = Signal(str)
 
     def __init__(self, video_path, save_path, pixel_size, threshold,
                  replace_color, method, brightness, contrast, blur, sharpen,
                  glow_radius=0, glow_intensity=0,
-                 palette_name="B&W", custom_palette=None):
+                 palette_name="B&W", custom_palette=None,
+                 saturation=1.0, hue_rotate=0,
+                 pre_denoise=0, pre_smooth=0,
+                 post_denoise=0, post_smooth=0):
         super().__init__()
         self._vp   = video_path;  self._sp  = save_path
         self._ps   = pixel_size;  self._t   = threshold
@@ -105,6 +165,12 @@ class _VideoExportBase(QThread):
         self._gr   = glow_radius; self._gi  = glow_intensity
         self._pal  = palette_name
         self._cpal = custom_palette
+        self._sa   = saturation
+        self._hu   = hue_rotate
+        self._prd  = pre_denoise
+        self._prs  = pre_smooth
+        self._pod  = post_denoise
+        self._pos  = post_smooth
         self._stop = False; self._mutex = QMutex()
 
     def _make_args(self, frames: list[Image.Image]) -> list:
@@ -112,8 +178,12 @@ class _VideoExportBase(QThread):
         br, co, bl, sh = self._br, self._co, self._bl, self._sh
         gr, gi         = self._gr, self._gi
         pal, cpal      = self._pal, self._cpal
+        sa, hu         = self._sa, self._hu
+        prd, prs       = self._prd, self._prs
+        pod, pos       = self._pod, self._pos
         return [
-            (f.tobytes(), f.mode, f.size, ps, t, rc, m, br, co, bl, sh, gr, gi, pal, cpal)
+            (f.tobytes(), f.mode, f.size, ps, t, rc, m, br, co, bl, sh, gr, gi,
+             pal, cpal, sa, hu, prd, prs, pod, pos)
             for f in frames
         ]
 
@@ -144,11 +214,10 @@ class VideoExportWorker(_VideoExportBase):
             fps   = cap.get(cv2.CAP_PROP_FPS) or 25.
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            # Try to resolve palette for GPU batch path
             use_gpu_batch = GPU_BACKEND == "cuda"
             pal_rgb = _resolve_palette_rgb(self._pal, self._cpal) if use_gpu_batch else None
             if pal_rgb is None:
-                use_gpu_batch = False  # B&W / unsupported palette -- fall back
+                use_gpu_batch = False
 
             BATCH = _GPU_EXPORT_BATCH if use_gpu_batch else max(1, _VIDEO_WORKERS * 2)
             count = 0
@@ -168,14 +237,11 @@ class VideoExportWorker(_VideoExportBase):
                         break
 
                     if use_gpu_batch:
-                        # --- GPU batch path -----------------------------------
-                        # Stack frames into (B, H, W, 3), one PCIe upload
-                        arr = np.stack([np.array(f) for f in frames_buf])  # (B,H,W,3)
+                        arr = np.stack([np.array(f) for f in frames_buf])
                         arr_gpu  = to_gpu(arr)
-                        arr_out  = gpu_palette_batch(arr_gpu, pal_rgb)     # host (B,H,W,3)
+                        arr_out  = gpu_palette_batch(arr_gpu, pal_rgb)
                         dithered = [Image.fromarray(arr_out[i]) for i in range(len(arr_out))]
                     else:
-                        # --- CPU thread-pool path (fallback) ------------------
                         dithered = [
                             Image.frombytes(mode, size, data)
                             for data, mode, size in executor.map(
@@ -208,7 +274,6 @@ class VideoExportWorker(_VideoExportBase):
 
 
 class GifExportWorker(_VideoExportBase):
-    """Export a dithered animated GIF from a video file."""
     frame_ready = Signal(object)
     progress    = Signal(int, int)
     finished    = Signal()
@@ -238,7 +303,11 @@ class GifExportWorker(_VideoExportBase):
                     pil, self._ps, self._t, self._rc, self._m,
                     self._br, self._co, self._bl, self._sh,
                     self._gr, self._gi,
-                    palette_name=self._pal, custom_palette=self._cpal)
+                    palette_name=self._pal, custom_palette=self._cpal,
+                    saturation=self._sa, hue_rotate=self._hu,
+                    pre_denoise=self._prd, pre_smooth=self._prs,
+                    post_denoise=self._pod, post_smooth=self._pos,
+                )
                 frames.append(dithered.convert("P", palette=Image.ADAPTIVE, colors=256))
                 count += 1
                 self.progress.emit(count, total)

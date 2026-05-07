@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 from .constants import METHOD_GROUPS, METHODS, VERSION
 from .palettes import PALETTES
 from .presets import save_preset, load_preset, list_presets, delete_preset
-from .theme import _P6, _P4, _P1, _AM, _FG, _G3, _MONO_FONT
+from .theme import _P6, _P4, _P1, _P2, _AM, _FG, _FG2, _G0, _G3, _MONO_FONT, _AE
 from .ui_widgets import hsep, make_slider
 
 try:
@@ -37,10 +37,11 @@ class MethodPicker(QWidget):
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
 
         self._combo = QComboBox()
-        self._combo.setMinimumHeight(30)
+        self._combo.setMinimumHeight(28)
+        self._combo.setToolTip("Dithering algorithm")
 
         for group, members in METHOD_GROUPS.items():
             self._combo.addItem(f"── {group} ──")
@@ -50,7 +51,6 @@ class MethodPicker(QWidget):
             for m in members:
                 self._combo.addItem(f"  {m}")
 
-        # Select the default entry
         for i in range(self._combo.count()):
             if self._combo.itemText(i).strip() == self._DEFAULT:
                 self._combo.setCurrentIndex(i)
@@ -96,8 +96,6 @@ class ControlPanel(QWidget):
         self._custom_palette: list[tuple[int, int, int]] = []
         self._build()
 
-    # ── Build ──────────────────────────────────────────────────────────────
-
     def _build(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -111,61 +109,112 @@ class ControlPanel(QWidget):
         inner  = QWidget()
         layout = QVBoxLayout(inner)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
         scroll.setWidget(inner)
         outer.addWidget(scroll, stretch=1)
 
-        # Algorithm
         ag = self._group("Algorithm")
         self.method_picker = MethodPicker()
         self.method_picker.method_selected.connect(lambda _: self.params_changed.emit())
         ag.layout().addWidget(self.method_picker)
         layout.addWidget(ag)
 
-        # Dither
         dg = self._group("Dither")
-        _, self._pix_val,  self.pixel_sl  = make_slider(dg.layout(), "pixel size", 1, 20, 4)
-        _, self._thr_val,  self.thresh_sl = make_slider(dg.layout(), "threshold",  0, 255, 128)
+        _, self._pix_val,  self.pixel_sl  = make_slider(
+            dg.layout(), "pixel size", 1, 20, 4,
+            tooltip="Mosaic block size in pixels",
+        )
+        _, self._thr_val,  self.thresh_sl = make_slider(
+            dg.layout(), "threshold",  0, 255, 128,
+            tooltip="Binarisation threshold (0–255)",
+        )
         layout.addWidget(dg)
 
-        # Adjustments
         adj = self._group("Adjustments")
-        _, self._br_val, self.bright_sl = make_slider(adj.layout(), "brightness", 0, 200, 100, "{v}%")
-        _, self._co_val, self.contr_sl  = make_slider(adj.layout(), "contrast",   0, 200, 100, "{v}%")
-        _, self._bl_val, self.blur_sl   = make_slider(adj.layout(), "blur",       0, 10,  0)
-        _, self._sh_val, self.sharp_sl  = make_slider(adj.layout(), "sharpen",    0, 5,   0)
+        _, self._br_val, self.bright_sl = make_slider(
+            adj.layout(), "brightness", 0, 200, 100, "{v}%",
+            tooltip="Brightness multiplier (100 = no change)",
+        )
+        _, self._co_val, self.contr_sl  = make_slider(
+            adj.layout(), "contrast",   0, 200, 100, "{v}%",
+            tooltip="Contrast multiplier (100 = no change)",
+        )
+        _, self._sa_val, self.sat_sl = make_slider(
+            adj.layout(), "saturation", 0, 200, 100, "{v}%",
+            tooltip="Colour saturation multiplier (100 = no change)",
+        )
+        _, self._hu_val, self.hue_sl = make_slider(
+            adj.layout(), "hue", 0, 359, 0, "{v}°",
+            tooltip="Hue rotation in degrees",
+        )
+        _, self._bl_val, self.blur_sl   = make_slider(
+            adj.layout(), "blur",       0, 10,  0,
+            tooltip="Gaussian blur radius before dithering",
+        )
+        _, self._sh_val, self.sharp_sl  = make_slider(
+            adj.layout(), "sharpen",    0, 5,   0,
+            tooltip="Unsharp-mask strength",
+        )
         layout.addWidget(adj)
 
-        reset_btn = QPushButton("↺ Reset Adjustments")
+        pre = self._group("Pre-dither Filters")
+        _, self._prd_val, self.pre_denoise_sl = make_slider(
+            pre.layout(), "denoise", 0, 10, 0,
+            tooltip="Median denoise strength before dithering",
+        )
+        _, self._prs_val, self.pre_smooth_sl = make_slider(
+            pre.layout(), "smooth", 0, 8, 0,
+            tooltip="Smooth filter passes before dithering",
+        )
+        layout.addWidget(pre)
+
+        reset_btn = QPushButton("↺  Reset Adjustments")
         reset_btn.clicked.connect(self._reset)
-        reset_btn.setMinimumHeight(26)
+        reset_btn.setMinimumHeight(28)
+        reset_btn.setToolTip("Reset image adjustments and filters to defaults")
         layout.addWidget(reset_btn)
         layout.addWidget(hsep())
 
-        # Glow
         gg = self._group("Glow")
-        _, self._gr_val, self.glow_r_sl = make_slider(gg.layout(), "radius",    0, 40,  0)
-        _, self._gi_val, self.glow_i_sl = make_slider(gg.layout(), "intensity", 0, 100, 0, "{v}%")
+        _, self._gr_val, self.glow_r_sl = make_slider(
+            gg.layout(), "radius",    0, 40,  0,
+            tooltip="Bloom glow blur radius",
+        )
+        _, self._gi_val, self.glow_i_sl = make_slider(
+            gg.layout(), "intensity", 0, 100, 0, "{v}%",
+            tooltip="Bloom glow blend intensity",
+        )
         layout.addWidget(gg)
+
+        post = self._group("Post-dither Filters")
+        _, self._pod_val, self.post_denoise_sl = make_slider(
+            post.layout(), "denoise", 0, 10, 0,
+            tooltip="Median denoise strength after dithering",
+        )
+        _, self._pos_val, self.post_smooth_sl = make_slider(
+            post.layout(), "smooth", 0, 8, 0,
+            tooltip="Smooth filter passes after dithering",
+        )
+        layout.addWidget(post)
         layout.addWidget(hsep())
 
-        # Colour
         cg = self._group("Colour")
         self.swatch = QLabel()
-        self.swatch.setFixedHeight(34)
+        self.swatch.setFixedHeight(36)
         self.swatch.setAlignment(Qt.AlignCenter)
         self._refresh_swatch()
         cg.layout().addWidget(self.swatch)
-        pick_btn = QPushButton("⬛ Pick Colour")
-        pick_btn.setMinimumHeight(26)
+        pick_btn = QPushButton("Pick Colour")
+        pick_btn.setMinimumHeight(28)
+        pick_btn.setToolTip("Choose the foreground dither colour")
         pick_btn.clicked.connect(self._pick_color)
         cg.layout().addWidget(pick_btn)
         layout.addWidget(cg)
 
-        # Palette
         palg = self._group("Palette")
         self.palette_combo = QComboBox()
         self.palette_combo.setMinimumHeight(28)
+        self.palette_combo.setToolTip("Select a colour palette for quantisation")
         for pal_name in PALETTES:
             self.palette_combo.addItem(pal_name)
         self.palette_combo.currentTextChanged.connect(self._on_palette_changed)
@@ -174,15 +223,17 @@ class ControlPanel(QWidget):
         self.pal_swatch_widget = QWidget()
         self.pal_swatch_layout = QGridLayout(self.pal_swatch_widget)
         self.pal_swatch_layout.setSpacing(2)
-        self.pal_swatch_layout.setContentsMargins(0, 0, 0, 0)
+        self.pal_swatch_layout.setContentsMargins(0, 2, 0, 2)
         palg.layout().addWidget(self.pal_swatch_widget)
         self._refresh_palette_swatches()
 
         custom_row = QHBoxLayout()
-        self.custom_pal_btn  = QPushButton("+ Add Color")
+        self.custom_pal_btn   = QPushButton("+ Add")
         self.clear_custom_btn = QPushButton("✕ Clear")
         for b in (self.custom_pal_btn, self.clear_custom_btn):
-            b.setMinimumHeight(24)
+            b.setMinimumHeight(26)
+        self.custom_pal_btn.setToolTip("Add a colour to the custom palette")
+        self.clear_custom_btn.setToolTip("Clear the custom palette")
         self.custom_pal_btn.clicked.connect(self._add_custom_color)
         self.clear_custom_btn.clicked.connect(self._clear_custom_palette)
         custom_row.addWidget(self.custom_pal_btn)
@@ -190,29 +241,33 @@ class ControlPanel(QWidget):
         palg.layout().addLayout(custom_row)
         layout.addWidget(palg)
 
-        # Presets
         pg = self._group("Presets")
         row_p = QHBoxLayout()
         self.preset_name = QLineEdit()
         self.preset_name.setPlaceholderText("preset name...")
-        self.preset_name.setMinimumHeight(26)
+        self.preset_name.setMinimumHeight(28)
+        self.preset_name.setToolTip("Name for saving current settings as a preset")
         save_p = QPushButton("Save")
-        save_p.setMinimumHeight(26)
+        save_p.setMinimumHeight(28)
+        save_p.setToolTip("Save current settings as a named preset")
         save_p.clicked.connect(self._save_preset)
         row_p.addWidget(self.preset_name)
         row_p.addWidget(save_p)
         pg.layout().addLayout(row_p)
 
         self.preset_combo = QComboBox()
-        self.preset_combo.setMinimumHeight(26)
+        self.preset_combo.setMinimumHeight(28)
+        self.preset_combo.setToolTip("Select a saved preset")
         self._refresh_preset_combo()
 
         row_p2 = QHBoxLayout()
         load_p = QPushButton("Load")
-        load_p.setMinimumHeight(26)
+        load_p.setMinimumHeight(28)
+        load_p.setToolTip("Load selected preset")
         del_p  = QPushButton("Del")
-        del_p.setMinimumHeight(26)
+        del_p.setMinimumHeight(28)
         del_p.setObjectName("danger")
+        del_p.setToolTip("Delete selected preset")
         load_p.clicked.connect(self._load_preset)
         del_p.clicked.connect(self._delete_preset)
         row_p2.addWidget(self.preset_combo)
@@ -227,53 +282,59 @@ class ControlPanel(QWidget):
             jit_lbl = QLabel("numba JIT active")
             jit_lbl.setAlignment(Qt.AlignCenter)
             jit_lbl.setStyleSheet(
-                f"font-family:{_MONO_FONT}; font-size:9px; color:{_FG}; padding:0 0 6px 0;"
+                f"font-family:{_MONO_FONT}; font-size:9px;"
+                f"color:{_AE}; padding:0 0 4px 0; letter-spacing:1px;"
             )
             layout.addWidget(jit_lbl)
 
-        ver = QLabel(f"DITHER GUY v{VERSION}")
+        ver = QLabel(f"DITHER MAN  v{VERSION}")
         ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet(
-            f"font-family:{_MONO_FONT}; font-size:9px; color:{_G3};"
-            "letter-spacing:2px; padding:10px 0 4px 0;"
+            f"font-family:{_MONO_FONT}; font-size:9px; color:{_FG2};"
+            "letter-spacing:3px; padding:8px 0 4px 0;"
         )
         layout.addWidget(ver)
 
         self._wire_sliders()
 
-    # ── Helpers ────────────────────────────────────────────────────────────
-
     @staticmethod
     def _group(title: str) -> QGroupBox:
         gb = QGroupBox(title)
         lyt = QVBoxLayout(gb)
-        lyt.setSpacing(4)
+        lyt.setSpacing(5)
+        lyt.setContentsMargins(8, 6, 8, 8)
         return gb
 
     def _wire_sliders(self) -> None:
-        """Connect all sliders: live label + preview on drag, full render on release."""
         pairs = [
             (self.pixel_sl,  self._pix_val, "{v}"),
             (self.thresh_sl, self._thr_val, "{v}"),
             (self.bright_sl, self._br_val,  "{v}%"),
             (self.contr_sl,  self._co_val,  "{v}%"),
+            (self.sat_sl,    self._sa_val,  "{v}%"),
+            (self.hue_sl,    self._hu_val,  "{v}°"),
             (self.blur_sl,   self._bl_val,  "{v}"),
             (self.sharp_sl,  self._sh_val,  "{v}"),
+            (self.pre_denoise_sl,  self._prd_val, "{v}"),
+            (self.pre_smooth_sl,   self._prs_val, "{v}"),
             (self.glow_r_sl, self._gr_val,  "{v}"),
             (self.glow_i_sl, self._gi_val,  "{v}%"),
+            (self.post_denoise_sl, self._pod_val, "{v}"),
+            (self.post_smooth_sl,  self._pos_val, "{v}"),
         ]
         for sl, lbl, fmt in pairs:
             sl.valueChanged.connect(lambda v, l=lbl, f=fmt: l.setText(f.format(v=v)))
             sl.valueChanged.connect(lambda _: self.params_changed_preview.emit())
             sl.sliderReleased.connect(self.params_changed.emit)
 
-    # ── Slots ──────────────────────────────────────────────────────────────
-
     def _reset(self) -> None:
         defaults = [
             (self.bright_sl, 100), (self.contr_sl, 100),
-            (self.blur_sl,   0),   (self.sharp_sl,  0),
+            (self.sat_sl, 100),    (self.hue_sl, 0),
+            (self.blur_sl, 0),     (self.sharp_sl, 0),
+            (self.pre_denoise_sl, 0), (self.pre_smooth_sl, 0),
             (self.glow_r_sl, 0),   (self.glow_i_sl, 0),
+            (self.post_denoise_sl, 0), (self.post_smooth_sl, 0),
         ]
         for sl, v in defaults:
             sl.blockSignals(True)
@@ -285,10 +346,16 @@ class ControlPanel(QWidget):
     def _refresh_value_labels(self) -> None:
         self._br_val.setText(f"{self.bright_sl.value()}%")
         self._co_val.setText(f"{self.contr_sl.value()}%")
+        self._sa_val.setText(f"{self.sat_sl.value()}%")
+        self._hu_val.setText(f"{self.hue_sl.value()}°")
         self._bl_val.setText(str(self.blur_sl.value()))
         self._sh_val.setText(str(self.sharp_sl.value()))
+        self._prd_val.setText(str(self.pre_denoise_sl.value()))
+        self._prs_val.setText(str(self.pre_smooth_sl.value()))
         self._gr_val.setText(str(self.glow_r_sl.value()))
         self._gi_val.setText(f"{self.glow_i_sl.value()}%")
+        self._pod_val.setText(str(self.post_denoise_sl.value()))
+        self._pos_val.setText(str(self.post_smooth_sl.value()))
 
     def _pick_color(self) -> None:
         c = QColorDialog.getColor(QColor(*self.current_color), self, "Pick Colour")
@@ -307,6 +374,7 @@ class ControlPanel(QWidget):
             f"font-family:{_MONO_FONT}; font-size:10px; font-weight:bold;"
         )
         self.swatch.setText(f"#{r:02X}{g:02X}{b:02X}")
+        self.swatch.setToolTip(f"Current colour: #{r:02X}{g:02X}{b:02X}  rgb({r},{g},{b})")
 
     def _on_palette_changed(self, _name: str) -> None:
         self._refresh_palette_swatches()
@@ -326,7 +394,7 @@ class ControlPanel(QWidget):
             sq.setFixedSize(16, 16)
             sq.setToolTip(f"#{r:02X}{g:02X}{b:02X}")
             sq.setStyleSheet(
-                f"background:rgb({r},{g},{b}); border:1px solid {_P4}; border-radius:1px;"
+                f"background:rgb({r},{g},{b}); border:1px solid {_P6}; border-radius:2px;"
             )
             self.pal_swatch_layout.addWidget(sq, i // cols, i % cols)
 
@@ -381,11 +449,17 @@ class ControlPanel(QWidget):
         self.pixel_sl.setValue(p.get("pixel_size", 4))
         self.thresh_sl.setValue(p.get("threshold", 128))
         self.bright_sl.setValue(int(p.get("brightness", 1.0) * 100))
-        self.contr_sl.setValue(int(p.get("contrast",   1.0) * 100))
-        self.blur_sl.setValue(p.get("blur",    0))
+        self.contr_sl.setValue(int(p.get("contrast", 1.0) * 100))
+        self.sat_sl.setValue(int(p.get("saturation", 1.0) * 100))
+        self.hue_sl.setValue(p.get("hue_rotate", 0))
+        self.blur_sl.setValue(p.get("blur", 0))
         self.sharp_sl.setValue(p.get("sharpen", 0))
-        self.glow_r_sl.setValue(p.get("glow_radius",    0))
+        self.pre_denoise_sl.setValue(p.get("pre_denoise", 0))
+        self.pre_smooth_sl.setValue(p.get("pre_smooth", 0))
+        self.glow_r_sl.setValue(p.get("glow_radius", 0))
         self.glow_i_sl.setValue(p.get("glow_intensity", 0))
+        self.post_denoise_sl.setValue(p.get("post_denoise", 0))
+        self.post_smooth_sl.setValue(p.get("post_smooth", 0))
         self.current_color = tuple(p.get("color", (0, 255, 65)))
         self._refresh_swatch()
         pal_name = p.get("palette_name", "B&W")
@@ -399,8 +473,6 @@ class ControlPanel(QWidget):
         if name and delete_preset(name):
             self._refresh_preset_combo()
 
-    # ── Public API ─────────────────────────────────────────────────────────
-
     def get_params(self) -> dict:
         pal_name = self.palette_combo.currentText()
         return {
@@ -409,11 +481,17 @@ class ControlPanel(QWidget):
             "threshold":      self.thresh_sl.value(),
             "brightness":     self.bright_sl.value() / 100.0,
             "contrast":       self.contr_sl.value()  / 100.0,
+            "saturation":     self.sat_sl.value() / 100.0,
+            "hue_rotate":     self.hue_sl.value(),
             "blur":           self.blur_sl.value(),
             "sharpen":        self.sharp_sl.value(),
+            "pre_denoise":    self.pre_denoise_sl.value(),
+            "pre_smooth":     self.pre_smooth_sl.value(),
             "color":          self.current_color,
             "glow_radius":    self.glow_r_sl.value(),
             "glow_intensity": self.glow_i_sl.value(),
+            "post_denoise":   self.post_denoise_sl.value(),
+            "post_smooth":    self.post_smooth_sl.value(),
             "palette_name":   pal_name,
             "custom_palette": self._custom_palette if pal_name == "Custom" else None,
         }

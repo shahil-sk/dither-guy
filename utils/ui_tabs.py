@@ -10,12 +10,12 @@ from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QScrollArea, QCheckBox, QFileDialog, QMessageBox,
-    QProgressBar,
+    QProgressBar, QSlider, QStyle, QSplitter,
 )
 
 from .constants import _MAX_PIXELS, _HISTORY_LIMIT, _DEBOUNCE_MS
 from .dither_kernels import apply_dither
-from .theme import _P0, _P1, _P5, _G3, _FG3, _RE, _MONO_FONT
+from .theme import _P0, _P1, _P2, _P3, _P4, _P5, _P6, _G0, _G1, _G2, _G3, _FG, _FG2, _FG3, _RE, _AE, _MONO_FONT
 from .workers import DitherWorker, VideoExportWorker
 from .ui_widgets import ZoomableLabel, HistogramWidget, pil_to_pixmap, hsep, vsep
 
@@ -52,10 +52,11 @@ class ImageTab(QWidget):
         self._timer.timeout.connect(self.process)
         self._preview_timer = QTimer(singleShot=True)
         self._preview_timer.timeout.connect(self._process_preview)
+        self._split_visible = True
         self._build()
         self.setAcceptDrops(True)
 
-    # ── Build ──────────────────────────────────────────────────────────────────────
+    # ── Build ──────────────────────────────────────────────────────────────
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -70,20 +71,65 @@ class ImageTab(QWidget):
         )
         layout.addWidget(self.info_lbl)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
+        # ── Split view: left=source, right=dithered ────────────────────────
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.setHandleWidth(2)
+        self._splitter.setStyleSheet(
+            f"QSplitter::handle {{ background:{_P5}; }}"
+        )
+
+        src_scroll = QScrollArea()
+        src_scroll.setWidgetResizable(True)
+        self._src_label = QLabel("SOURCE")
+        self._src_label.setAlignment(Qt.AlignCenter)
+        self._src_label.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:9px; color:{_FG3};"
+            f"background:{_P0}; padding:2px 6px;"
+        )
+        self.src_canvas = ZoomableLabel("")
+        self.src_canvas.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:14px; color:{_P5}; background:{_P0};"
+        )
+        src_wrap = QWidget()
+        src_wrap.setStyleSheet(f"background:{_P0};")
+        src_layout = QVBoxLayout(src_wrap)
+        src_layout.setContentsMargins(0, 0, 0, 0)
+        src_layout.setSpacing(0)
+        src_layout.addWidget(self._src_label)
+        src_scroll.setWidget(self.src_canvas)
+        src_layout.addWidget(src_scroll, stretch=1)
+        self._splitter.addWidget(src_wrap)
+
+        dst_scroll = QScrollArea()
+        dst_scroll.setWidgetResizable(True)
+        self._dst_label = QLabel("DITHERED")
+        self._dst_label.setAlignment(Qt.AlignCenter)
+        self._dst_label.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:9px; color:{_FG3};"
+            f"background:{_P0}; padding:2px 6px;"
+        )
         self.canvas = ZoomableLabel("▣ Drop image here · Ctrl+O")
         self.canvas.setStyleSheet(
             f"font-family:{_MONO_FONT}; font-size:14px; color:{_P5}; background:{_P0};"
         )
-        scroll.setWidget(self.canvas)
-        layout.addWidget(scroll, stretch=1)
+        dst_wrap = QWidget()
+        dst_wrap.setStyleSheet(f"background:{_P0};")
+        dst_layout = QVBoxLayout(dst_wrap)
+        dst_layout.setContentsMargins(0, 0, 0, 0)
+        dst_layout.setSpacing(0)
+        dst_layout.addWidget(self._dst_label)
+        dst_scroll.setWidget(self.canvas)
+        dst_layout.addWidget(dst_scroll, stretch=1)
+        self._splitter.addWidget(dst_wrap)
+
+        self._splitter.setSizes([1, 1])
+        layout.addWidget(self._splitter, stretch=1)
 
         self.histogram = HistogramWidget()
         self.histogram.setVisible(False)
         layout.addWidget(self.histogram)
 
-        # ── Toolbar bar ───────────────────────────────────────────────────────────────
+        # ── Toolbar ────────────────────────────────────────────────────────────
         bar1 = QWidget()
         bar1.setStyleSheet(f"background:{_P0};")
         bl1 = QHBoxLayout(bar1)
@@ -106,6 +152,17 @@ class ImageTab(QWidget):
         _btn("↔ H",       self.flip_h,       tip="Flip horizontal")
         _btn("↕ V",       self.flip_v,       tip="Flip vertical")
         _btn("✂ Crop",    self.crop)
+
+        bl1.addWidget(vsep())
+
+        # Split-view toggle
+        self._split_btn = QPushButton("⊟ Split")
+        self._split_btn.setCheckable(True)
+        self._split_btn.setChecked(True)
+        self._split_btn.setMinimumHeight(28)
+        self._split_btn.setToolTip("Toggle source / dithered split view")
+        self._split_btn.toggled.connect(self._toggle_split)
+        bl1.addWidget(self._split_btn)
 
         bl1.addWidget(vsep())
         self.hist_cb = QCheckBox("Histogram")
@@ -137,7 +194,18 @@ class ImageTab(QWidget):
         bl1.addWidget(self.undo_btn)
         layout.addWidget(bar1)
 
-    # ── Drag & drop ─────────────────────────────────────────────────────────────
+    # ── Split toggle ──────────────────────────────────────────────────
+
+    def _toggle_split(self, checked: bool) -> None:
+        self._split_visible = checked
+        src_pane = self._splitter.widget(0)
+        if checked:
+            src_pane.show()
+            self._splitter.setSizes([1, 1])
+        else:
+            src_pane.hide()
+
+    # ── Drag & drop ──────────────────────────────────────────────────
 
     def dragEnterEvent(self, e) -> None:
         if e.mimeData().hasUrls():
@@ -150,7 +218,7 @@ class ImageTab(QWidget):
                 self._load(p)
                 break
 
-    # ── Auto-update ────────────────────────────────────────────────────────────
+    # ── Auto-update ──────────────────────────────────────────────────
 
     def _toggle_auto(self, state: int) -> None:
         self.auto_update = bool(state)
@@ -166,7 +234,7 @@ class ImageTab(QWidget):
             self._timer.stop()
             self._timer.start(_DEBOUNCE_MS)
 
-    # ── Processing ─────────────────────────────────────────────────────────────
+    # ── Processing ──────────────────────────────────────────────────
 
     def _build_worker(self, preview: bool) -> DitherWorker:
         p = self.get_params()
@@ -178,6 +246,12 @@ class ImageTab(QWidget):
             preview=preview,
             palette_name=p.get("palette_name", "B&W"),
             custom_palette=p.get("custom_palette"),
+            saturation=p.get("saturation", 1.0),
+            hue_rotate=p.get("hue_rotate", 0),
+            pre_denoise=p.get("pre_denoise", 0),
+            pre_smooth=p.get("pre_smooth", 0),
+            post_denoise=p.get("post_denoise", 0),
+            post_smooth=p.get("post_smooth", 0),
         )
 
     def _process_preview(self) -> None:
@@ -213,7 +287,7 @@ class ImageTab(QWidget):
             self.worker.deleteLater()
             self.worker = None
 
-    # ── File I/O ─────────────────────────────────────────────────────────────────
+    # ── File I/O ──────────────────────────────────────────────────────
 
     def _load(self, path: str) -> None:
         try:
@@ -230,6 +304,9 @@ class ImageTab(QWidget):
             self._history.clear()
             self.undo_btn.setEnabled(False)
             self.last_dir = str(Path(path).parent)
+            # show source in left pane immediately
+            self.src_canvas.set_image(pil_to_pixmap(self.original_img))
+            self.src_canvas.setStyleSheet(f"background:{_P0};")
             self._refresh_info()
             self.status_message.emit(f"loaded {Path(path).name}")
             self.process()
@@ -260,7 +337,7 @@ class ImageTab(QWidget):
             except Exception as exc:
                 QMessageBox.critical(self, "Save Error", f"Failed:\n{exc}")
 
-    # ── History ───────────────────────────────────────────────────────────────────
+    # ── History ──────────────────────────────────────────────────────
 
     def _refresh_info(self) -> None:
         if self.original_img:
@@ -281,54 +358,42 @@ class ImageTab(QWidget):
             return False
         return True
 
-    # ── Image operations ───────────────────────────────────────────────────────────
+    # ── Image operations ─────────────────────────────────────────────────
+
+    def _op(self, fn) -> None:
+        if not self._require_image():
+            return
+        self._push_history()
+        self.original_img = fn(self.original_img)
+        self.src_canvas.set_image(pil_to_pixmap(self.original_img))
+        self.src_canvas.setStyleSheet(f"background:{_P0};")
+        self._refresh_info()
+        self.process()
 
     def invert(self) -> None:
-        if not self._require_image("invert"):
-            return
-        self._push_history()
-        self.original_img = Image.fromarray(
-            (255 - np.array(self.original_img)).astype(np.uint8)
-        )
+        if not self._require_image("invert"): return
+        self._op(lambda img: Image.fromarray((255 - np.array(img)).astype(np.uint8)))
         self.status_message.emit("inverted")
-        self._refresh_info()
-        self.process()
 
     def rotate_left(self) -> None:
-        if not self._require_image("rotate"):
-            return
-        self._push_history()
-        self.original_img = self.original_img.rotate(90, expand=True)
+        if not self._require_image("rotate"): return
+        self._op(lambda img: img.rotate(90, expand=True))
         self.status_message.emit("rotated 90° CCW")
-        self._refresh_info()
-        self.process()
 
     def rotate_right(self) -> None:
-        if not self._require_image("rotate"):
-            return
-        self._push_history()
-        self.original_img = self.original_img.rotate(-90, expand=True)
+        if not self._require_image("rotate"): return
+        self._op(lambda img: img.rotate(-90, expand=True))
         self.status_message.emit("rotated 90° CW")
-        self._refresh_info()
-        self.process()
 
     def flip_h(self) -> None:
-        if not self._require_image("flip"):
-            return
-        self._push_history()
-        self.original_img = self.original_img.transpose(Image.FLIP_LEFT_RIGHT)
+        if not self._require_image("flip"): return
+        self._op(lambda img: img.transpose(Image.FLIP_LEFT_RIGHT))
         self.status_message.emit("flipped H")
-        self._refresh_info()
-        self.process()
 
     def flip_v(self) -> None:
-        if not self._require_image("flip"):
-            return
-        self._push_history()
-        self.original_img = self.original_img.transpose(Image.FLIP_TOP_BOTTOM)
+        if not self._require_image("flip"): return
+        self._op(lambda img: img.transpose(Image.FLIP_TOP_BOTTOM))
         self.status_message.emit("flipped V")
-        self._refresh_info()
-        self.process()
 
     def crop(self) -> None:
         if not self._require_image("crop"):
@@ -347,6 +412,8 @@ class ImageTab(QWidget):
             return
         self._push_history()
         self.original_img = self.original_img.crop((l, t, x2, y2))
+        self.src_canvas.set_image(pil_to_pixmap(self.original_img))
+        self.src_canvas.setStyleSheet(f"background:{_P0};")
         self.status_message.emit(
             f"cropped → {self.original_img.width}×{self.original_img.height}"
         )
@@ -358,11 +425,13 @@ class ImageTab(QWidget):
             return
         self.original_img = self._history.pop()
         self.undo_btn.setEnabled(bool(self._history))
+        self.src_canvas.set_image(pil_to_pixmap(self.original_img))
+        self.src_canvas.setStyleSheet(f"background:{_P0};")
         self.status_message.emit("undo")
         self._refresh_info()
         self.process()
 
-    # ── Worker callbacks ───────────────────────────────────────────────────────────
+    # ── Worker callbacks ────────────────────────────────────────────────
 
     def _on_done(self, payload, worker_id: int) -> None:
         if worker_id != self._worker_id:
@@ -379,7 +448,7 @@ class ImageTab(QWidget):
         self.status_message.emit(f"error: {msg}")
         QMessageBox.warning(self, "Processing Error", msg)
 
-    # ── Zoom proxy (label update handled by DitherGuy._update_zoom_lbl) ─────
+    # ── Zoom proxy ────────────────────────────────────────────────────
 
     def zoom_in(self)  -> None: self.canvas.zoom_in()
     def zoom_out(self) -> None: self.canvas.zoom_out()
@@ -392,28 +461,42 @@ class ImageTab(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _fmt_time(seconds: float) -> str:
+    s = int(seconds)
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+
+
+# ---------------------------------------------------------------------------
 # Video tab
 # ---------------------------------------------------------------------------
 
 class VideoTab(QWidget):
     status_message = Signal(str)
 
-    _VIDEO_FILTER = "Video (*.mp4 *.avi *.mov);;All (*.*)"
+    _VIDEO_FILTER = "Video (*.mp4 *.avi *.mov *.mkv *.webm);;All (*.*)"
 
     def __init__(self, get_params):
         super().__init__()
-        self.get_params     = get_params
-        self.video_cap      = None
-        self.video_path     = None
-        self.current_frame  = None
-        self.is_playing     = False
-        self.export_worker  = None
-        self.last_dir       = str(Path.home())
-        self._play_timer    = QTimer()
+        self.get_params    = get_params
+        self.video_cap     = None
+        self.video_path    = None
+        self.current_frame = None
+        self.is_playing    = False
+        self.loop          = False
+        self.export_worker = None
+        self.last_dir      = str(Path.home())
+        self._fps          = 25.0
+        self._total_frames = 0
+        self._scrubbing    = False
+        self._play_timer   = QTimer()
         self._play_timer.timeout.connect(self._next_frame)
         self._build()
-
-    # ── Build ──────────────────────────────────────────────────────────────────────
+        self.setFocusPolicy(Qt.StrongFocus)
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -430,30 +513,125 @@ class VideoTab(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        self.canvas = ZoomableLabel("▶ Load a video · MP4 / AVI / MOV")
+        self.canvas = ZoomableLabel("▶ Load a video · MP4 / AVI / MOV / MKV")
         self.canvas.setStyleSheet(
             f"font-family:{_MONO_FONT}; font-size:14px; color:{_P5}; background:{_P0};"
         )
         scroll.setWidget(self.canvas)
         layout.addWidget(scroll, stretch=1)
 
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedHeight(3)
-        self.progress_bar.setTextVisible(False)
-        layout.addWidget(self.progress_bar)
+        self.export_bar = QProgressBar()
+        self.export_bar.setVisible(False)
+        self.export_bar.setFixedHeight(4)
+        self.export_bar.setTextVisible(False)
+        self.export_bar.setStyleSheet(
+            f"QProgressBar {{ background:{_P4}; border:none; }}"
+            f"QProgressBar::chunk {{ background:{_AE}; }}"
+        )
+        layout.addWidget(self.export_bar)
+
+        seek_container = QWidget()
+        seek_container.setStyleSheet(f"background:{_P0};")
+        seek_layout = QHBoxLayout(seek_container)
+        seek_layout.setContentsMargins(8, 3, 8, 0)
+        seek_layout.setSpacing(6)
+
+        self._pos_lbl = QLabel("0:00")
+        self._pos_lbl.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:11px; color:{_FG2};"
+            "min-width:40px;"
+        )
+        self._pos_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self.seek_bar = QSlider(Qt.Horizontal)
+        self.seek_bar.setMinimum(0)
+        self.seek_bar.setMaximum(1000)
+        self.seek_bar.setValue(0)
+        self.seek_bar.setEnabled(False)
+        self.seek_bar.setFixedHeight(18)
+        self.seek_bar.setToolTip("Seek / scrub  (← / → keys for ±5 s)")
+        self.seek_bar.sliderPressed.connect(self._on_seek_press)
+        self.seek_bar.sliderMoved.connect(self._on_seek_move)
+        self.seek_bar.sliderReleased.connect(self._on_seek_release)
+
+        self._dur_lbl = QLabel("0:00")
+        self._dur_lbl.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:11px; color:{_FG3};"
+            "min-width:40px;"
+        )
+        self._dur_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        seek_layout.addWidget(self._pos_lbl)
+        seek_layout.addWidget(self.seek_bar, stretch=1)
+        seek_layout.addWidget(self._dur_lbl)
+        layout.addWidget(seek_container)
 
         bar = QWidget()
-        bar.setStyleSheet(f"background:{_P0}; border-top:1px solid {_G3};")
-        bl  = QHBoxLayout(bar)
+        bar.setStyleSheet(f"background:{_P0}; border-top:1px solid {_P5};")
+        bl = QHBoxLayout(bar)
         bl.setContentsMargins(8, 5, 8, 5)
-        bl.setSpacing(5)
-        self.play_btn = QPushButton("▶ Play")
-        self.play_btn.clicked.connect(self.toggle_play)
-        self.play_btn.setEnabled(False)
-        self.play_btn.setMinimumHeight(28)
-        bl.addWidget(self.play_btn)
+        bl.setSpacing(4)
+
+        def _tbtn(label: str, slot, tip: str = "", oid: str = "") -> QPushButton:
+            b = QPushButton(label)
+            b.setMinimumHeight(28)
+            b.setFixedWidth(56)
+            if oid:
+                b.setObjectName(oid)
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            bl.addWidget(b)
+            return b
+
+        self.rewind_btn = _tbtn("⏮",      self._rewind,      "Rewind to start  (Home)")
+        self.play_btn   = _tbtn("▶",      self.toggle_play,  "Play / Pause  (Space)",  "accent")
+        self.stop_btn   = _tbtn("■",      self.stop,         "Stop & rewind  (S)")
+        self.step_f_btn = _tbtn("⏭",      self._end,         "Jump to end  (End)")
+
+        bl.addWidget(vsep())
+
+        self.loop_btn = QPushButton("⟳  Loop")
+        self.loop_btn.setCheckable(True)
+        self.loop_btn.setMinimumHeight(28)
+        self.loop_btn.setToolTip("Toggle loop playback  (L)")
+        self.loop_btn.setStyleSheet(
+            f"QPushButton {{ background:{_P4}; border:1px solid {_P5}; border-radius:3px;"
+            f"color:{_FG3}; font-size:11px; padding:5px 10px; }}"
+            f"QPushButton:checked {{ background:{_G3}; border-color:{_G2}; color:{_G0}; }}"
+            f"QPushButton:hover {{ border-color:{_P6}; color:{_FG}; }}"
+        )
+        self.loop_btn.toggled.connect(self._on_loop_toggled)
+        bl.addWidget(self.loop_btn)
+
         bl.addStretch()
+
+        self._frame_badge = QLabel("-- / --")
+        self._frame_badge.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:11px; color:{_FG2};"
+            f"background:{_P2}; border:1px solid {_P5}; border-radius:2px;"
+            "padding:2px 8px; margin:3px;"
+        )
+        self._frame_badge.setToolTip("Current frame / total frames")
+        bl.addWidget(self._frame_badge)
+
+        self._fps_badge = QLabel("-- fps")
+        self._fps_badge.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:11px; color:{_FG3};"
+            f"background:{_P2}; border:1px solid {_P5}; border-radius:2px;"
+            "padding:2px 8px; margin:3px;"
+        )
+        self._fps_badge.setToolTip("Source video frame rate")
+        bl.addWidget(self._fps_badge)
+
+        bl.addWidget(vsep())
+
+        export_btn = QPushButton("⥅ Export")
+        export_btn.setObjectName("accent")
+        export_btn.setMinimumHeight(28)
+        export_btn.setToolTip("Export dithered video to MP4")
+        export_btn.clicked.connect(self.export_video)
+        bl.addWidget(export_btn)
+
         layout.addWidget(bar)
 
         if not _CV2:
@@ -465,7 +643,12 @@ class VideoTab(QWidget):
             )
             layout.addWidget(warn)
 
-    # ── File I/O ─────────────────────────────────────────────────────────────────
+        self._set_controls_enabled(False)
+
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        for w in (self.rewind_btn, self.play_btn, self.stop_btn,
+                  self.step_f_btn, self.loop_btn, self.seek_bar):
+            w.setEnabled(enabled)
 
     def open_file(self) -> None:
         if not _CV2:
@@ -476,50 +659,137 @@ class VideoTab(QWidget):
         )
         if not path:
             return
+        self._load_video(path)
+
+    def _load_video(self, path: str) -> None:
+        if self.is_playing:
+            self._play_timer.stop()
+            self.is_playing = False
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
+
         cap = cv2.VideoCapture(path)
         if not cap.isOpened():
             cap.release()
             QMessageBox.critical(self, "Error", "Cannot open video.")
             return
-        self.video_cap  = cap
-        self.video_path = path
-        fps   = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.last_dir = str(Path(path).parent)
-        self.info_lbl.setText(f"{Path(path).name} · {total} frames @ {fps:.1f} fps")
-        self.play_btn.setEnabled(True)
-        self.status_message.emit(f"loaded {Path(path).name}")
-        self._next_frame()
 
-    # ── Playback ────────────────────────────────────────────────────────────────
+        self.video_cap     = cap
+        self.video_path    = path
+        self._fps          = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        self._total_frames = max(1, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
+        self.last_dir      = str(Path(path).parent)
+
+        duration = self._total_frames / self._fps
+        name     = Path(path).name
+        w        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h        = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.info_lbl.setText(
+            f"{name}  ·  {w}×{h}  ·  {self._total_frames} fr  ·  {self._fps:.2f} fps  ·  {_fmt_time(duration)}"
+        )
+        self._fps_badge.setText(f"{self._fps:.2f} fps")
+        self._dur_lbl.setText(_fmt_time(duration))
+        self.seek_bar.setValue(0)
+        self._set_controls_enabled(True)
+        self.play_btn.setText("▶")
+        self.status_message.emit(f"loaded {name}")
+        self._seek_to_frame(0)
 
     def toggle_play(self) -> None:
         if self.is_playing:
-            self.is_playing = False
-            self._play_timer.stop()
-            self.play_btn.setText("▶ Play")
+            self._pause()
         else:
-            if not self.video_cap:
-                return
-            fps = self.video_cap.get(cv2.CAP_PROP_FPS) or 25.0
-            self.is_playing = True
-            self.play_btn.setText("⏸ Pause")
-            self._play_timer.start(max(1, int(1000 / fps)))
+            self._play()
+
+    def _play(self) -> None:
+        if not self.video_cap:
+            return
+        self.is_playing = True
+        self.play_btn.setText("⏸")
+        interval = max(1, int(1000 / self._fps))
+        self._play_timer.start(interval)
+        self.status_message.emit("playing")
+
+    def _pause(self) -> None:
+        self.is_playing = False
+        self._play_timer.stop()
+        self.play_btn.setText("▶")
+        self.status_message.emit("paused")
+
+    def stop(self) -> None:
+        self._pause()
+        self._seek_to_frame(0)
+        self.status_message.emit("stopped")
+
+    def _rewind(self) -> None:
+        was_playing = self.is_playing
+        if was_playing: self._pause()
+        self._seek_to_frame(0)
+        if was_playing: self._play()
+
+    def _end(self) -> None:
+        was_playing = self.is_playing
+        if was_playing: self._pause()
+        self._seek_to_frame(max(0, self._total_frames - 1))
+
+    def _on_loop_toggled(self, checked: bool) -> None:
+        self.loop = checked
+
+    def _on_seek_press(self) -> None:
+        self._scrubbing = True
+        if self.is_playing:
+            self._play_timer.stop()
+
+    def _on_seek_move(self, value: int) -> None:
+        frame_idx = int(value / 1000 * (self._total_frames - 1))
+        self._seek_to_frame(frame_idx, update_bar=False)
+
+    def _on_seek_release(self) -> None:
+        self._scrubbing = False
+        frame_idx = int(self.seek_bar.value() / 1000 * (self._total_frames - 1))
+        self._seek_to_frame(frame_idx)
+        if self.is_playing:
+            self._play_timer.start(max(1, int(1000 / self._fps)))
+
+    def _seek_to_frame(self, frame_idx: int, update_bar: bool = True) -> None:
+        if not self.video_cap:
+            return
+        frame_idx = max(0, min(frame_idx, self._total_frames - 1))
+        self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ret, frame = self.video_cap.read()
+        if not ret:
+            return
+        self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        self._show(self.current_frame)
+        self._update_position_ui(frame_idx, update_bar)
+
+    def _update_position_ui(self, frame_idx: int, update_bar: bool = True) -> None:
+        elapsed = frame_idx / max(1, self._fps)
+        self._pos_lbl.setText(_fmt_time(elapsed))
+        self._frame_badge.setText(f"{frame_idx + 1} / {self._total_frames}")
+        if update_bar and self._total_frames > 1:
+            pos = int(frame_idx / (self._total_frames - 1) * 1000)
+            self.seek_bar.blockSignals(True)
+            self.seek_bar.setValue(pos)
+            self.seek_bar.blockSignals(False)
 
     def _next_frame(self) -> None:
         if not self.video_cap or not self.video_cap.isOpened():
             return
+        frame_idx = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
         ret, frame = self.video_cap.read()
         if not ret:
-            self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            if self.is_playing:
+            if self.loop:
+                self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 self._next_frame()
+            else:
+                self._pause()
+                self._seek_to_frame(0)
             return
         self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         self._show(self.current_frame)
+        self._update_position_ui(frame_idx)
 
     def _show(self, img: Image.Image) -> None:
         p = self.get_params()
@@ -530,13 +800,46 @@ class VideoTab(QWidget):
                 p["glow_radius"], p["glow_intensity"],
                 palette_name=p.get("palette_name", "B&W"),
                 custom_palette=p.get("custom_palette"),
+                saturation=p.get("saturation", 1.0),
+                hue_rotate=p.get("hue_rotate", 0),
+                pre_denoise=p.get("pre_denoise", 0),
+                pre_smooth=p.get("pre_smooth", 0),
+                post_denoise=p.get("post_denoise", 0),
+                post_smooth=p.get("post_smooth", 0),
             )
             self.canvas.set_image(pil_to_pixmap(dith))
             self.canvas.setStyleSheet(f"background:{_P0};")
         except Exception as exc:
             self.status_message.emit(f"frame error: {exc}")
 
-    # ── Export ──────────────────────────────────────────────────────────────────
+    def keyPressEvent(self, event) -> None:
+        if not self.video_cap:
+            return super().keyPressEvent(event)
+        key = event.key()
+        if key == Qt.Key_Space:
+            self.toggle_play()
+        elif key == Qt.Key_S:
+            self.stop()
+        elif key == Qt.Key_L:
+            self.loop_btn.setChecked(not self.loop_btn.isChecked())
+        elif key == Qt.Key_Home:
+            self._rewind()
+        elif key == Qt.Key_End:
+            self._end()
+        elif key in (Qt.Key_Right, Qt.Key_Period):
+            cur = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
+            self._seek_to_frame(cur + int(self._fps * 5))
+        elif key in (Qt.Key_Left, Qt.Key_Comma):
+            cur = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
+            self._seek_to_frame(cur - int(self._fps * 5))
+        elif key == Qt.Key_BracketRight:
+            cur = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
+            self._seek_to_frame(cur + 1)
+        elif key == Qt.Key_BracketLeft:
+            cur = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
+            self._seek_to_frame(max(0, cur - 2))
+        else:
+            super().keyPressEvent(event)
 
     def export_video(self) -> None:
         if not _CV2:
@@ -553,7 +856,7 @@ class VideoTab(QWidget):
         if not path:
             return
         if self.is_playing:
-            self.toggle_play()
+            self._pause()
         if self.video_cap:
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         p = self.get_params()
@@ -564,36 +867,40 @@ class VideoTab(QWidget):
             p["glow_radius"], p["glow_intensity"],
             palette_name=p.get("palette_name", "B&W"),
             custom_palette=p.get("custom_palette"),
+            saturation=p.get("saturation", 1.0),
+            hue_rotate=p.get("hue_rotate", 0),
+            pre_denoise=p.get("pre_denoise", 0),
+            pre_smooth=p.get("pre_smooth", 0),
+            post_denoise=p.get("post_denoise", 0),
+            post_smooth=p.get("post_smooth", 0),
         )
         self.export_worker.frame_ready.connect(
             lambda img: self.canvas.set_image(pil_to_pixmap(img))
         )
-        self.export_worker.progress.connect(self._on_progress)
+        self.export_worker.progress.connect(self._on_export_progress)
         self.export_worker.finished.connect(self._on_export_done)
         self.export_worker.error.connect(
             lambda msg: QMessageBox.critical(self, "Export Error", msg)
         )
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
+        self.export_bar.setVisible(True)
+        self.export_bar.setValue(0)
         self.status_message.emit("exporting...")
         self.export_worker.start()
 
-    def _on_progress(self, cur: int, total: int) -> None:
-        self.progress_bar.setMaximum(total)
-        self.progress_bar.setValue(cur)
+    def _on_export_progress(self, cur: int, total: int) -> None:
+        self.export_bar.setMaximum(total)
+        self.export_bar.setValue(cur)
         self.status_message.emit(f"exporting {cur}/{total} frames")
 
     def _on_export_done(self) -> None:
         if self.export_worker is None:
             return
         self.export_worker = None
-        self.progress_bar.setVisible(False)
+        self.export_bar.setVisible(False)
         self.status_message.emit("export complete")
         QMessageBox.information(self, "Done", "Video exported.")
         if self.video_cap:
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
-    # ── Zoom proxy (label update handled by DitherGuy._update_zoom_lbl) ─────
 
     def zoom_in(self)  -> None: self.canvas.zoom_in()
     def zoom_out(self) -> None: self.canvas.zoom_out()
@@ -603,8 +910,6 @@ class VideoTab(QWidget):
     @property
     def zoom_level(self) -> float:
         return self.canvas.zoom_level
-
-    # ── Cleanup ──────────────────────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:
         self._play_timer.stop()
