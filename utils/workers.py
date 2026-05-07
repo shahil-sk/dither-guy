@@ -65,29 +65,31 @@ class DitherWorker(QThread):
 
 
 class FrameDitherWorker(QThread):
-    """Off-thread dither for a single video preview frame.
+    """Lightweight single-frame dither for VideoTab live preview.
 
-    Emits ``finished(PIL.Image)`` when done.
-    If ``stop()`` is called before the frame completes the signal is suppressed.
+    Accepts a pre-downscaled PIL image and a params dict (same shape as
+    get_params() returns).  Emits finished(Image.Image) on success; errors
+    are silently swallowed so a stale frame never crashes playback.
     """
-    finished = Signal(object)  # PIL.Image
+    finished = Signal(object)  # Image.Image
 
     def __init__(self, img: Image.Image, params: dict):
         super().__init__()
-        self._img   = img
-        self._p     = params
-        self._stop  = False
+        self._img  = img
+        self._p    = params
+        self._stop = False
         self._mutex = QMutex()
 
-    def run(self):
-        self.setPriority(QThread.Priority.NormalPriority)
+    def run(self) -> None:
+        self.setPriority(QThread.Priority.LowPriority)
         try:
             p = self._p
             result = apply_dither(
                 self._img,
                 p["pixel_size"], p["threshold"], p["color"], p["method"],
                 p["brightness"], p["contrast"], p["blur"], p["sharpen"],
-                p["glow_radius"], p["glow_intensity"],
+                p.get("glow_radius", 0), p.get("glow_intensity", 0),
+                preview=True,
                 palette_name=p.get("palette_name", "B&W"),
                 custom_palette=p.get("custom_palette"),
             )
@@ -97,9 +99,9 @@ class FrameDitherWorker(QThread):
             if ok:
                 self.finished.emit(result)
         except Exception:
-            pass  # silent — frame drop is acceptable during playback
+            pass  # drop bad frame; playback continues
 
-    def stop(self):
+    def stop(self) -> None:
         self._mutex.lock(); self._stop = True; self._mutex.unlock()
 
 
@@ -208,6 +210,7 @@ class VideoExportWorker(_VideoExportBase):
 
                     if use_gpu_batch:
                         # --- GPU batch path -----------------------------------
+                        # Stack frames into (B, H, W, 3), one PCIe upload
                         arr = np.stack([np.array(f) for f in frames_buf])  # (B,H,W,3)
                         arr_gpu  = to_gpu(arr)
                         arr_out  = gpu_palette_batch(arr_gpu, pal_rgb)     # host (B,H,W,3)
