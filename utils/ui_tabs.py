@@ -6,7 +6,7 @@ import itertools
 
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QUrl
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QScrollArea, QCheckBox, QFileDialog, QMessageBox,
@@ -24,6 +24,12 @@ try:
     _CV2 = True
 except ImportError:
     _CV2 = False
+
+try:
+    from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+    _MULTIMEDIA = True
+except ImportError:
+    _MULTIMEDIA = False
 
 _worker_id_counter = itertools.count(1)
 
@@ -495,8 +501,39 @@ class VideoTab(QWidget):
         self._scrubbing    = False
         self._play_timer   = QTimer()
         self._play_timer.timeout.connect(self._next_frame)
+
+        # ── QMediaPlayer for audio ─────────────────────────────────────────
+        if _MULTIMEDIA:
+            self._audio_out = QAudioOutput()
+            self._audio_out.setVolume(1.0)
+            self._player = QMediaPlayer()
+            self._player.setAudioOutput(self._audio_out)
+            # no video output — audio only
+        else:
+            self._player    = None
+            self._audio_out = None
+
         self._build()
         self.setFocusPolicy(Qt.StrongFocus)
+
+    # ── Audio helpers ──────────────────────────────────────────────────────
+
+    def _audio_enabled(self) -> bool:
+        return _MULTIMEDIA and self._player is not None and self.audio_cb.isChecked()
+
+    def _player_seek_ms(self, frame_idx: int) -> None:
+        """Seek QMediaPlayer to match cv2 frame position."""
+        if not self._audio_enabled():
+            return
+        ms = int(frame_idx / max(1.0, self._fps) * 1000)
+        self._player.setPosition(ms)
+
+    def _sync_audio_volume(self) -> None:
+        if not _MULTIMEDIA or self._audio_out is None:
+            return
+        self._audio_out.setVolume(1.0 if self.audio_cb.isChecked() else 0.0)
+
+    # ── Build ──────────────────────────────────────────────────────────────
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -603,6 +640,17 @@ class VideoTab(QWidget):
         self.loop_btn.toggled.connect(self._on_loop_toggled)
         bl.addWidget(self.loop_btn)
 
+        bl.addWidget(vsep())
+
+        # ── Audio checkbox ─────────────────────────────────────────────────
+        self.audio_cb = QCheckBox("Include audio")
+        self.audio_cb.setChecked(True)
+        self.audio_cb.setToolTip(
+            "Play audio in preview · mux into exported video (requires ffmpeg in PATH)"
+        )
+        self.audio_cb.stateChanged.connect(lambda _: self._sync_audio_volume())
+        bl.addWidget(self.audio_cb)
+
         bl.addStretch()
 
         self._frame_badge = QLabel("-- / --")
@@ -643,6 +691,15 @@ class VideoTab(QWidget):
             )
             layout.addWidget(warn)
 
+        if not _MULTIMEDIA:
+            warn2 = QLabel("⚠ PySide6-Multimedia unavailable — preview audio disabled")
+            warn2.setAlignment(Qt.AlignCenter)
+            warn2.setStyleSheet(
+                f"color:{_FG3}; font-family:{_MONO_FONT}; font-size:10px;"
+                f"padding:3px; background:{_P1};"
+            )
+            layout.addWidget(warn2)
+
         self._set_controls_enabled(False)
 
     def _set_controls_enabled(self, enabled: bool) -> None:
@@ -669,6 +726,10 @@ class VideoTab(QWidget):
             self.video_cap.release()
             self.video_cap = None
 
+        # stop any previous QMediaPlayer session
+        if self._player is not None:
+            self._player.stop()
+
         cap = cv2.VideoCapture(path)
         if not cap.isOpened():
             cap.release()
@@ -680,6 +741,11 @@ class VideoTab(QWidget):
         self._fps          = cap.get(cv2.CAP_PROP_FPS) or 25.0
         self._total_frames = max(1, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
         self.last_dir      = str(Path(path).parent)
+
+        # load file into QMediaPlayer (audio only — no video output assigned)
+        if self._player is not None:
+            self._player.setSource(QUrl.fromLocalFile(str(Path(path).resolve())))
+            self._sync_audio_volume()
 
         duration = self._total_frames / self._fps
         name     = Path(path).name
@@ -709,12 +775,16 @@ class VideoTab(QWidget):
         self.play_btn.setText("⏸")
         interval = max(1, int(1000 / self._fps))
         self._play_timer.start(interval)
+        if self._audio_enabled():
+            self._player.play()
         self.status_message.emit("playing")
 
     def _pause(self) -> None:
         self.is_playing = False
         self._play_timer.stop()
         self.play_btn.setText("▶")
+        if self._player is not None:
+            self._player.pause()
         self.status_message.emit("paused")
 
     def stop(self) -> None:
@@ -735,11 +805,16 @@ class VideoTab(QWidget):
 
     def _on_loop_toggled(self, checked: bool) -> None:
         self.loop = checked
+        if self._player is not None:
+            from PySide6.QtMultimedia import QMediaPlayer as _QMP
+            self._player.setLoops(_QMP.Infinite if checked else 1)
 
     def _on_seek_press(self) -> None:
         self._scrubbing = True
         if self.is_playing:
             self._play_timer.stop()
+            if self._player is not None:
+                self._player.pause()
 
     def _on_seek_move(self, value: int) -> None:
         frame_idx = int(value / 1000 * (self._total_frames - 1))
@@ -751,6 +826,8 @@ class VideoTab(QWidget):
         self._seek_to_frame(frame_idx)
         if self.is_playing:
             self._play_timer.start(max(1, int(1000 / self._fps)))
+            if self._audio_enabled():
+                self._player.play()
 
     def _seek_to_frame(self, frame_idx: int, update_bar: bool = True) -> None:
         if not self.video_cap:
@@ -763,6 +840,7 @@ class VideoTab(QWidget):
         self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         self._show(self.current_frame)
         self._update_position_ui(frame_idx, update_bar)
+        self._player_seek_ms(frame_idx)
 
     def _update_position_ui(self, frame_idx: int, update_bar: bool = True) -> None:
         elapsed = frame_idx / max(1, self._fps)
@@ -782,6 +860,9 @@ class VideoTab(QWidget):
         if not ret:
             if self.loop:
                 self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                # QMediaPlayer loop handled via setLoops; just seek to keep sync
+                if self._audio_enabled():
+                    self._player.setPosition(0)
                 self._next_frame()
             else:
                 self._pause()
@@ -873,6 +954,7 @@ class VideoTab(QWidget):
             pre_smooth=p.get("pre_smooth", 0),
             post_denoise=p.get("post_denoise", 0),
             post_smooth=p.get("post_smooth", 0),
+            include_audio=self.audio_cb.isChecked(),
         )
         self.export_worker.frame_ready.connect(
             lambda img: self.canvas.set_image(pil_to_pixmap(img))
@@ -913,6 +995,8 @@ class VideoTab(QWidget):
 
     def closeEvent(self, event) -> None:
         self._play_timer.stop()
+        if self._player is not None:
+            self._player.stop()
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None

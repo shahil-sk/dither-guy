@@ -27,7 +27,7 @@ except ImportError:
 class MethodPicker(QWidget):
     method_selected = Signal(str)
 
-    _DEFAULT = "Floyd-Steinberg"
+    _DEFAULT = "Bayer 2x2"
 
     def __init__(self):
         super().__init__()
