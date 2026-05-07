@@ -9,6 +9,15 @@ _PREVIEW_SCALE = 0.5
 _VIDEO_WORKERS = max(4, (os.cpu_count() - 1 or 4))
 VERSION        = "3.5.4"
 
+### Removed Dither Algo
+
+# Error Diffusion
+
+# Nakano
+# Ostromoukhov
+# jarvis-Judice-Ninke
+
+
 METHOD_GROUPS = {
     "Ordered": [
         "Bayer 2x2", "Bayer 4x4", "Bayer 8x8",
