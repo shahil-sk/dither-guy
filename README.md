@@ -1,25 +1,25 @@
-# Dither Man
+# Dither Guy
 
-[![Build Status](https://github.com/shahil-sk/dither-guy/actions/workflows/main.yml/badge.svg)](https://github.com/shahil-sk/dither-guy/actions/workflows/main.yml)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/shahil-sk/dither-guy)](https://github.com/shahil-sk/dither-guy/releases/latest)
-[![GitHub downloads](https://img.shields.io/github/downloads/shahil-sk/dither-guy/total)](https://github.com/shahil-sk/dither-guy/releases)
-[![GitHub downloads (latest release)](https://img.shields.io/github/downloads/shahil-sk/dither-guy/latest/total)](https://github.com/shahil-sk/dither-guy/releases/latest)
+[![Build Status](https://github.com/manoelpiovesan/dither-guy/actions/workflows/main.yml/badge.svg)](https://github.com/manoelpiovesan/dither-guy/actions/workflows/main.yml)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/manoelpiovesan/dither-guy)](https://github.com/manoelpiovesan/dither-guy/releases/latest)
+[![GitHub downloads](https://img.shields.io/github/downloads/manoelpiovesan/dither-guy/total)](https://github.com/manoelpiovesan/dither-guy/releases)
+[![GitHub downloads (latest release)](https://img.shields.io/github/downloads/manoelpiovesan/dither-guy/latest/total)](https://github.com/manoelpiovesan/dither-guy/releases/latest)
 
-**Dither Man** is a free and open source software inspired by [Dither Boy](https://studioaaa.com/product/dither-boy/), designed to create graphic dithering effects similar to those found on old displays and low color-depth systems.
+**Dither Guy** is a software inspired by [Dither Boy](https://studioaaa.com/product/dither-boy/), designed to create graphic dithering effects similar to those found on old displays and low color-depth systems.
 
 The project focuses on providing a simple and straightforward tool for applying dithering to images and videos, preserving a controlled and retro visual aesthetic.
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/shahilsk)
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/L3L61SRB88)
 
 
 ## Download
 
 The latest binaries for each platform are available on the releases page:
 
-👉 https://github.com/shahil-sk/dither-guy/releases/latest
+👉 https://github.com/manoelpiovesan/dither-guy/releases/latest
 
-<img width="1225" height="844" alt="Screenshot_06052026_062105" src="https://github.com/user-attachments/assets/f4f809e4-3282-4e5c-9469-1667afb753b6" />
 
+![Screenshot](ui_screenshot.png)
 
 <!-- <h2 align="center">Image</h2>
 
@@ -35,12 +35,32 @@ The latest binaries for each platform are available on the releases page:
 |![Gif](input/computer_input.gif)|![Gif](output/computer.gif)| -->
 
 
+## Running in Development Mode
+
+To run the project locally in development mode:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python3 dither_guy.py
+
+```
+
+## Contributors and Supporters
+Special thanks to project contributors and supporters via Ko-Fi
+
+- Timo Frank (Supporter)
+- [@shahil-sk (Contributor)](https://github.com/shahil-sk)
+- [@momed081 (Contributor)](https://github.com/momed081)
+
+
 ## Star History
 
-<a href="https://www.star-history.com/?repos=shahil-sk%2Fdither-guy&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=manoelpiovesan%2Fdither-guy&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=shahil-sk/dither-guy&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=shahil-sk/dither-guy&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=shahil-sk/dither-guy&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manoelpiovesan/dither-guy&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manoelpiovesan/dither-guy&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manoelpiovesan/dither-guy&type=date&legend=top-left" />
  </picture>
 </a>

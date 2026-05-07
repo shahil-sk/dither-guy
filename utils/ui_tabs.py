@@ -603,6 +603,16 @@ class VideoTab(QWidget):
         self.loop_btn.toggled.connect(self._on_loop_toggled)
         bl.addWidget(self.loop_btn)
 
+        bl.addWidget(vsep())
+
+        # ── Audio checkbox ─────────────────────────────────────────────────
+        self.audio_cb = QCheckBox("Include audio")
+        self.audio_cb.setChecked(True)
+        self.audio_cb.setToolTip(
+            "Mux original audio into exported video (requires ffmpeg in PATH)"
+        )
+        bl.addWidget(self.audio_cb)
+
         bl.addStretch()
 
         self._frame_badge = QLabel("-- / --")
@@ -873,6 +883,7 @@ class VideoTab(QWidget):
             pre_smooth=p.get("pre_smooth", 0),
             post_denoise=p.get("post_denoise", 0),
             post_smooth=p.get("post_smooth", 0),
+            include_audio=self.audio_cb.isChecked(),
         )
         self.export_worker.frame_ready.connect(
             lambda img: self.canvas.set_image(pil_to_pixmap(img))
