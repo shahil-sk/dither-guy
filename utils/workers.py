@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -19,6 +23,40 @@ except ImportError:
     _CV2 = False
 
 _GPU_EXPORT_BATCH = 8
+
+
+def _ffmpeg_mux_audio(video_only_path: str, source_video_path: str, output_path: str) -> bool:
+    """Mux audio from source_video_path into video_only_path, write to output_path.
+    Returns True on success, False if ffmpeg unavailable or source has no audio."""
+    ffmpeg_cmd = "ffmpeg"
+    try:
+        subprocess.run(
+            [ffmpeg_cmd, "-version"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
+    cmd = [
+        ffmpeg_cmd,
+        "-y",
+        "-i", video_only_path,
+        "-i", source_video_path,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-map", "0:v:0",
+        "-map", "1:a:0?",
+        "-shortest",
+        output_path,
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
 
 
 class DitherWorker(QThread):
@@ -155,7 +193,8 @@ class _VideoExportBase(QThread):
                  palette_name="B&W", custom_palette=None,
                  saturation=1.0, hue_rotate=0,
                  pre_denoise=0, pre_smooth=0,
-                 post_denoise=0, post_smooth=0):
+                 post_denoise=0, post_smooth=0,
+                 include_audio=True):
         super().__init__()
         self._vp   = video_path;  self._sp  = save_path
         self._ps   = pixel_size;  self._t   = threshold
@@ -171,6 +210,7 @@ class _VideoExportBase(QThread):
         self._prs  = pre_smooth
         self._pod  = post_denoise
         self._pos  = post_smooth
+        self._include_audio = include_audio
         self._stop = False; self._mutex = QMutex()
 
     def _make_args(self, frames: list[Image.Image]) -> list:
@@ -206,6 +246,17 @@ class VideoExportWorker(_VideoExportBase):
         if not _CV2:
             self.error.emit("opencv-python not installed."); return
         cap = out = None
+
+        # If audio requested, write video to a temp file first, then mux.
+        # Otherwise write directly to final path.
+        if self._include_audio:
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".mp4")
+            import os; os.close(tmp_fd)
+            write_path = tmp_path
+        else:
+            tmp_path   = None
+            write_path = self._sp
+
         try:
             cap = cv2.VideoCapture(self._vp)
             if not cap.isOpened():
@@ -253,7 +304,7 @@ class VideoExportWorker(_VideoExportBase):
                             break
                         if out is None:
                             out = cv2.VideoWriter(
-                                self._sp,
+                                write_path,
                                 cv2.VideoWriter_fourcc(*'mp4v'),
                                 fps,
                                 (dith.width, dith.height))
@@ -265,12 +316,34 @@ class VideoExportWorker(_VideoExportBase):
                     if last_dithered is not None and count % max(1, BATCH) == 0:
                         self.frame_ready.emit(last_dithered)
 
-            self.finished.emit()
         except Exception as exc:
             self.error.emit(str(exc))
+            return
         finally:
             if cap: cap.release()
             if out: out.release()
+
+        # Mux audio from source into final output.
+        if self._include_audio and tmp_path and self._is_running():
+            muxed = _ffmpeg_mux_audio(tmp_path, self._vp, self._sp)
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+            if not muxed:
+                # ffmpeg unavailable or no audio track — move temp to final path.
+                try:
+                    import shutil
+                    shutil.move(tmp_path, self._sp)
+                except Exception:
+                    pass
+        elif tmp_path:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        self.finished.emit()
 
 
 class GifExportWorker(_VideoExportBase):
