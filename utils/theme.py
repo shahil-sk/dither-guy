@@ -1,41 +1,31 @@
 from __future__ import annotations
 
 # ── Palette (Adobe / After Effects inspired) ──────────────────────────────────
-# Adobe's professional dark UI uses a very specific gray family:
-# near-black panels, precise neutral grays, and sharp blue/teal accents.
-# No AMOLED pure black — Adobe uses #1a1a1a as the darkest surface.
+_P0 = "#141414"
+_P1 = "#1a1a1a"
+_P2 = "#222222"
+_P3 = "#2a2a2a"
+_P4 = "#333333"
+_P5 = "#3d3d3d"
+_P6 = "#555555"
+_P7 = "#686868"
 
-# Surface layers — Adobe's characteristic warm-neutral dark grays
-_P0 = "#141414"  # deepest background (like AE timeline bg)
-_P1 = "#1a1a1a"  # main window base (Photoshop workspace gray)
-_P2 = "#222222"  # panels / sidebars
-_P3 = "#2a2a2a"  # cards / group boxes
-_P4 = "#333333"  # elevated surfaces / inputs
-_P5 = "#3d3d3d"  # borders (normal)
-_P6 = "#555555"  # borders (hover)
-_P7 = "#686868"  # disabled text bg hint
+_G0 = "#4d9bff"
+_G1 = "#2c7be5"
+_G2 = "#1a5fbf"
+_G3 = "#1a2e4a"
 
-# Adobe Blue — PS/AE's signature cobalt accent
-_G0 = "#4d9bff"  # primary accent (Adobe Blue, bright)
-_G1 = "#2c7be5"  # hover state
-_G2 = "#1a5fbf"  # active / pressed
-_G3 = "#1a2e4a"  # muted fill / selection bg
+_AE  = "#ff8c00"
+_AE2 = "#3d2200"
 
-# Secondary accent — After Effects orange-amber (used for timeline, warnings)
-_AE = "#ff8c00"  # AE orange
-_AE2 = "#3d2200" # AE orange muted bg
+_AM = "#f0a500"
+_RE = "#e84040"
 
-# Semantic
-_AM = "#f0a500"  # warning — PS amber
-_RE = "#e84040"  # error — AE red
+_FG  = "#e8e8e8"
+_FG2 = "#a0a0a0"
+_FG3 = "#5a5a5a"
+_FG4 = "#303030"
 
-# Text hierarchy — Adobe uses very controlled text weights
-_FG  = "#e8e8e8"  # primary text (not pure white — softer)
-_FG2 = "#a0a0a0"  # secondary / labels
-_FG3 = "#5a5a5a"  # disabled / hints
-_FG4 = "#303030"  # very subtle text on dark bg
-
-# Fonts — Adobe uses clean, no-nonsense grotesques
 _MONO_FONT = "'Consolas', 'JetBrains Mono', 'Cascadia Code', 'Courier New', monospace"
 _SANS_FONT = "'Segoe UI', 'Helvetica Neue', 'Arial', sans-serif"
 
@@ -51,24 +41,24 @@ QMainWindow, QWidget {{
     font-size: 12px;
 }}
 
-/* ── Toolbar  (PS-style flat action bar) ─────────────────────────────────── */
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
 QToolBar {{
     background: {_P0};
     border: none;
     border-bottom: 1px solid {_P5};
-    padding: 2px 6px;
-    spacing: 0px;
+    padding: 3px 8px;
+    spacing: 1px;
 }}
 QToolBar QToolButton {{
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 2px;
-    padding: 4px 10px;
+    border-radius: 3px;
+    padding: 4px 11px;
     color: {_FG2};
     font-family: {_SANS_FONT};
     font-size: 11px;
     letter-spacing: 0.2px;
-    min-height: 22px;
+    min-height: 24px;
 }}
 QToolBar QToolButton:hover {{
     color: {_FG};
@@ -96,7 +86,7 @@ QToolBar QLabel {{
 QToolBar::separator {{
     background: {_P5};
     width: 1px;
-    margin: 5px 3px;
+    margin: 5px 4px;
 }}
 
 /* ── Menu Bar ────────────────────────────────────────────────────────────── */
@@ -137,7 +127,7 @@ QMenu::separator {{
     margin: 3px 0;
 }}
 
-/* ── Tabs (PS panel tabs — compact, flat) ───────────────────────────────── */
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
 QTabWidget::pane {{
     border: 1px solid {_P5};
     border-top: none;
@@ -148,13 +138,13 @@ QTabBar::tab {{
     background: {_P0};
     border: 1px solid {_P5};
     border-bottom: none;
-    padding: 6px 18px;
+    padding: 7px 20px;
     font-family: {_SANS_FONT};
     font-size: 11px;
     font-weight: 400;
     color: {_FG3};
     margin-right: 1px;
-    min-width: 70px;
+    min-width: 80px;
 }}
 QTabBar::tab:selected {{
     background: {_P1};
@@ -163,32 +153,32 @@ QTabBar::tab:selected {{
     font-weight: 600;
 }}
 QTabBar::tab:hover:!selected {{
-    color: {_FG2};
+    color: {_FG};
     background: {_P3};
 }}
 
-/* ── GroupBox (PS panel section headers) ─────────────────────────────────── */
+/* ── GroupBox ────────────────────────────────────────────────────────────── */
 QGroupBox {{
     border: 1px solid {_P5};
-    border-radius: 0px;
-    margin-top: 16px;
+    border-radius: 2px;
+    margin-top: 18px;
     padding-top: 18px;
     font-family: {_SANS_FONT};
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     color: {_FG3};
-    letter-spacing: 0.6px;
+    letter-spacing: 0.8px;
     text-transform: uppercase;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
-    font-size: 11px;
+    font-size: 10px;
     left: 8px;
     top: -1px;
     padding: 0 4px;
     color: {_FG2};
-    background: {_P1};
-    letter-spacing: 0.8px;
+    background: {_P2};
+    letter-spacing: 1px;
     text-transform: uppercase;
 }}
 
@@ -196,13 +186,13 @@ QGroupBox::title {{
 QPushButton {{
     background: {_P4};
     border: 1px solid {_P5};
-    border-radius: 2px;
+    border-radius: 3px;
     padding: 5px 14px;
     font-family: {_SANS_FONT};
     font-size: 12px;
     font-weight: 400;
     color: {_FG2};
-    min-height: 22px;
+    min-height: 24px;
 }}
 QPushButton:hover {{
     background: #3a3a3a;
@@ -219,13 +209,13 @@ QPushButton:disabled {{
     color: {_FG3};
     border-color: {_P3};
 }}
-/* Adobe-style primary CTA — solid blue */
 QPushButton#accent {{
     background: {_G2};
     border: 1px solid {_G1};
     color: #ffffff;
     font-weight: 600;
     letter-spacing: 0.2px;
+    border-radius: 3px;
 }}
 QPushButton#accent:hover {{
     background: {_G1};
@@ -239,22 +229,23 @@ QPushButton#danger {{
     background: #2b1111;
     border-color: #5a2020;
     color: {_RE};
+    border-radius: 3px;
 }}
 QPushButton#danger:hover {{
     background: #3a1414;
     border-color: {_RE};
 }}
 
-/* ── ComboBox (PS dropdown — flat, precise) ─────────────────────────────── */
+/* ── ComboBox ────────────────────────────────────────────────────────────── */
 QComboBox {{
     background: {_P4};
     border: 1px solid {_P5};
-    border-radius: 2px;
+    border-radius: 3px;
     padding: 4px 8px;
     color: {_FG};
     font-family: {_SANS_FONT};
     font-size: 12px;
-    min-height: 22px;
+    min-height: 24px;
     selection-background-color: {_G3};
 }}
 QComboBox:hover {{ border-color: {_P6}; background: #3a3a3a; }}
@@ -289,8 +280,8 @@ QCheckBox {{
     color: {_FG2};
 }}
 QCheckBox::indicator {{
-    width: 13px;
-    height: 13px;
+    width: 14px;
+    height: 14px;
     border: 1px solid {_P6};
     border-radius: 2px;
     background: {_P4};
@@ -298,7 +289,6 @@ QCheckBox::indicator {{
 QCheckBox::indicator:checked {{
     background: {_G1};
     border-color: {_G0};
-    /* PS uses a filled square, not a checkmark glyph */
 }}
 QCheckBox::indicator:hover {{ border-color: {_G1}; background: #3a3a3a; }}
 QCheckBox::indicator:disabled {{
@@ -313,8 +303,8 @@ QRadioButton {{
     color: {_FG2};
 }}
 QRadioButton::indicator {{
-    width: 13px;
-    height: 13px;
+    width: 14px;
+    height: 14px;
     border: 1px solid {_P6};
     border-radius: 7px;
     background: {_P4};
@@ -324,23 +314,23 @@ QRadioButton::indicator:checked {{
     border-color: {_G0};
 }}
 
-/* ── Slider (PS-style flat track) ───────────────────────────────────────── */
+/* ── Slider ──────────────────────────────────────────────────────────────── */
 QSlider::groove:horizontal {{
-    height: 3px;
+    height: 4px;
     background: {_P5};
-    border-radius: 1px;
+    border-radius: 2px;
     margin: 0 2px;
 }}
 QSlider::sub-page:horizontal {{
     background: {_G0};
-    border-radius: 1px;
+    border-radius: 2px;
 }}
 QSlider::handle:horizontal {{
     background: {_FG};
-    width: 12px;
-    height: 12px;
+    width: 13px;
+    height: 13px;
     margin: -5px 0;
-    border-radius: 6px;
+    border-radius: 7px;
     border: 1px solid {_P6};
 }}
 QSlider::handle:horizontal:hover {{
@@ -351,57 +341,64 @@ QSlider::handle:horizontal:pressed {{
     background: {_G0};
     border-color: {_G0};
 }}
+QSlider:disabled::groove:horizontal {{
+    background: {_P4};
+}}
+QSlider:disabled::handle:horizontal {{
+    background: {_P6};
+    border-color: {_P5};
+}}
 
-/* ── ScrollBar (ultra-slim, PS style) ───────────────────────────────────── */
-QScrollArea {{ border: 1px solid {_P5}; background: {_P0}; }}
+/* ── ScrollBar (wider, easier to grab) ───────────────────────────────────── */
+QScrollArea {{ border: none; background: {_P0}; }}
 QScrollBar:vertical {{
     background: {_P1};
-    width: 8px;
+    width: 10px;
     border-radius: 0px;
     margin: 0;
 }}
 QScrollBar:horizontal {{
     background: {_P1};
-    height: 8px;
+    height: 10px;
     border-radius: 0px;
     margin: 0;
 }}
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
     background: {_P6};
-    border-radius: 4px;
-    min-height: 20px;
-    min-width: 20px;
+    border-radius: 5px;
+    min-height: 24px;
+    min-width: 24px;
     margin: 1px;
 }}
 QScrollBar::handle:vertical:hover,
-QScrollBar::handle:horizontal:hover {{ background: #888888; }}
+QScrollBar::handle:horizontal:hover {{ background: #909090; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 QScrollBar::corner {{ background: {_P0}; }}
 
 /* ── ProgressBar ─────────────────────────────────────────────────────────── */
 QProgressBar {{
     border: none;
-    border-radius: 0px;
+    border-radius: 2px;
     background: {_P4};
-    height: 4px;
+    height: 5px;
     text-align: center;
     font-size: 10px;
-    color: {_FG2};
+    color: transparent;
 }}
 QProgressBar::chunk {{
     background: {_G0};
-    border-radius: 0px;
+    border-radius: 2px;
 }}
 
-/* ── StatusBar (PS bottom bar) ───────────────────────────────────────────── */
+/* ── StatusBar ───────────────────────────────────────────────────────────── */
 QStatusBar {{
     background: {_P0};
     color: {_FG3};
-    font-family: {_SANS_FONT};
+    font-family: {_MONO_FONT};
     font-size: 11px;
     border-top: 1px solid {_P5};
     padding: 2px 8px;
-    min-height: 20px;
+    min-height: 22px;
 }}
 QStatusBar QLabel {{ color: {_FG2}; font-size: 11px; }}
 
@@ -422,12 +419,12 @@ QSplitter::handle:hover {{
 QSpinBox, QDoubleSpinBox {{
     background: {_P4};
     border: 1px solid {_P5};
-    border-radius: 2px;
+    border-radius: 3px;
     padding: 4px 6px;
     color: {_FG};
     font-family: {_SANS_FONT};
     font-size: 12px;
-    min-height: 22px;
+    min-height: 24px;
 }}
 QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {_P6}; }}
 QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {_G1}; }}
@@ -447,12 +444,12 @@ QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {{
 QLineEdit {{
     background: {_P4};
     border: 1px solid {_P5};
-    border-radius: 2px;
+    border-radius: 3px;
     padding: 4px 8px;
     color: {_FG};
     font-family: {_SANS_FONT};
     font-size: 12px;
-    min-height: 22px;
+    min-height: 24px;
     selection-background-color: {_G3};
     selection-color: {_G0};
 }}
@@ -479,7 +476,7 @@ QTextEdit, QPlainTextEdit {{
 }}
 QTextEdit:focus, QPlainTextEdit:focus {{ border-color: {_G1}; }}
 
-/* ── List / Tree / Table views (PS layers / properties panels) ───────────── */
+/* ── List / Tree / Table ─────────────────────────────────────────────────── */
 QListView, QTreeView, QTableView {{
     background: {_P2};
     border: 1px solid {_P5};
@@ -519,17 +516,17 @@ QFrame[frameShape="4"], QFrame[frameShape="5"] {{
 
 /* ── Tooltip ─────────────────────────────────────────────────────────────── */
 QToolTip {{
-    background: {_P0};
+    background: {_P3};
     border: 1px solid {_P6};
     color: {_FG};
     font-family: {_SANS_FONT};
     font-size: 11px;
-    padding: 4px 8px;
-    border-radius: 0px;
+    padding: 5px 9px;
+    border-radius: 3px;
     opacity: 240;
 }}
 
-/* ── DockWidget (PS panel docks) ─────────────────────────────────────────── */
+/* ── DockWidget ──────────────────────────────────────────────────────────── */
 QDockWidget {{
     color: {_FG};
     font-family: {_SANS_FONT};
@@ -565,7 +562,7 @@ QLabel[class="title"] {{
     font-weight: 600;
 }}
 
-/* ── Accent panel strip (mimics AE blue left-border style) ──────────────── */
+/* ── Accent panel strip ──────────────────────────────────────────────────── */
 QGroupBox#accent_panel {{
     border-left: 2px solid {_G0};
     border-top: 1px solid {_P5};
