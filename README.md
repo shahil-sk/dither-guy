@@ -20,6 +20,7 @@ The latest binaries for each platform are available on the releases page:
 
 
 ![Screenshot](ui_screenshot.png)
+![Video](ui_video.gif)
 
 <!-- <h2 align="center">Image</h2>
 
