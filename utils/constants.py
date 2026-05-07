@@ -6,8 +6,8 @@ _MAX_PIXELS    = 8_000_000
 _HISTORY_LIMIT = 20
 _DEBOUNCE_MS   = 250
 _PREVIEW_SCALE = 0.5
-_VIDEO_WORKERS = min(8, (os.cpu_count() or 4))
-VERSION        = "3.5.2"
+_VIDEO_WORKERS = max(4, (os.cpu_count() - 1 or 4))
+VERSION        = "3.5.4"
 
 METHOD_GROUPS = {
     "Ordered": [
