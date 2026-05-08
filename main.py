@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QAction, QImage, QPixmap
+from PySide6.QtGui import QIcon, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout,
     QSplitter, QTabWidget, QToolBar, QLabel,
@@ -39,7 +39,7 @@ def _build_info_str() -> str:
     ]
     if jit_tag:
         parts.append(jit_tag)
-    return "  ·  ".join(parts)
+    return "  \u00b7  ".join(parts)
 
 
 class DitherGuy(QMainWindow):
@@ -126,9 +126,7 @@ class DitherGuy(QMainWindow):
             return a
 
         act("open",  "Ctrl+O", self._open,  "Open image (Ctrl+O)")
-        act("paste", "Ctrl+V", self._paste_from_clipboard, "Paste image from clipboard (Ctrl+V)")
         act("save",  "Ctrl+S", self._save,  "Save output (Ctrl+S)")
-        act("copy",  "Ctrl+Shift+C", self._copy_result_to_clipboard, "Copy dithered result to clipboard (Ctrl+Shift+C)")
         act("batch", "Ctrl+B", self._batch, "Batch process folder (Ctrl+B)")
         tb.addSeparator()
         act("zoom +", "Ctrl+=", self._zoom_in,  "Zoom in (Ctrl+=)")
@@ -137,6 +135,8 @@ class DitherGuy(QMainWindow):
         act("1:1",    "Ctrl+1", self._actual,   "Actual pixel size (Ctrl+1)")
         tb.addSeparator()
         act("undo",  "Ctrl+Z", lambda: self.image_tab.undo(), "Undo last image operation (Ctrl+Z)")
+        tb.addSeparator()
+        act("randomize", "Ctrl+R", self._randomize, "Randomize all properties (Ctrl+R)")
         tb.addSeparator()
 
         self.zoom_lbl = QLabel("fit")
@@ -180,58 +180,6 @@ class DitherGuy(QMainWindow):
 
     def _open(self):  self._active().open_file()
 
-    def _paste_from_clipboard(self) -> None:
-        """Load an image from the system clipboard into the image tab."""
-        cb   = QApplication.clipboard()
-        mime = cb.mimeData()
-
-        def _load(qimg: QImage) -> None:
-            self.tabs.setCurrentIndex(0)
-            self.image_tab.load_from_qimage(qimg)
-            self._show_status("pasted image from clipboard")
-
-        # ── 1. Qt native image ─────────────────────────────────────────────
-        if mime.hasImage():
-            qimg = cb.image()
-            if not qimg.isNull():
-                _load(qimg)
-                return
-
-        # ── 2. Raw bytes under explicit MIME types (Linux/X11, browsers) ───
-        for fmt in ("image/png", "image/bmp", "image/jpeg",
-                    "image/jpg", "image/tiff", "image/webp"):
-            if mime.hasFormat(fmt):
-                data = mime.data(fmt)
-                if data and not data.isEmpty():
-                    qimg = QImage()
-                    if qimg.loadFromData(bytes(data)) and not qimg.isNull():
-                        _load(qimg)
-                        return
-
-        # ── 3. File URL (copied file in file manager) ──────────────────────
-        if mime.hasUrls():
-            for url in mime.urls():
-                path = url.toLocalFile()
-                if path and Path(path).suffix.lower() in self.image_tab._DROP_EXTS:
-                    self.tabs.setCurrentIndex(0)
-                    self.image_tab._load(path)
-                    self._show_status(f"pasted from {Path(path).name}")
-                    return
-
-        self._show_status("clipboard has no image")
-
-    def _copy_result_to_clipboard(self):
-        """Copy the current dithered output image to the system clipboard."""
-        if self.tabs.currentIndex() != 0:
-            self._show_status("copy to clipboard is only available in the Image tab")
-            return
-        pixmap: QPixmap | None = self.image_tab.get_result_pixmap()
-        if pixmap is None or pixmap.isNull():
-            self._show_status("no result to copy — process an image first")
-            return
-        QApplication.clipboard().setPixmap(pixmap)
-        self._show_status("result copied to clipboard")
-
     def _save(self):
         if self.tabs.currentIndex() == 0:
             self.image_tab.save_file()
@@ -241,6 +189,10 @@ class DitherGuy(QMainWindow):
     def _batch(self):
         dlg = BatchDialog(self.controls.get_params, self)
         dlg.exec()
+
+    def _randomize(self):
+        self.controls.randomize()
+        self._show_status("randomized")
 
     def _zoom_in(self):  self._active().zoom_in();  self._update_zoom_lbl()
     def _zoom_out(self): self._active().zoom_out(); self._update_zoom_lbl()
