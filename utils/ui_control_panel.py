@@ -12,7 +12,7 @@ from .constants import METHOD_GROUPS, METHODS, VERSION
 from .palettes import PALETTES
 from .presets import save_preset, load_preset, list_presets, delete_preset
 from .theme import _P6, _P4, _P1, _P2, _AM, _FG, _FG2, _G0, _G3, _MONO_FONT, _AE
-from .ui_widgets import hsep, make_slider
+from .ui_widgets import hsep, make_slider, ResettableSlider
 
 try:
     from .dither_kernels import _NUMBA
@@ -168,11 +168,28 @@ class ControlPanel(QWidget):
         )
         layout.addWidget(pre)
 
+        # --- reset + scroll-wheel toggle row ---
+        ctrl_row = QHBoxLayout()
+        ctrl_row.setSpacing(6)
+
         reset_btn = QPushButton("↺  Reset Adjustments")
         reset_btn.clicked.connect(self._reset)
         reset_btn.setMinimumHeight(28)
         reset_btn.setToolTip("Reset image adjustments and filters to defaults")
-        layout.addWidget(reset_btn)
+        ctrl_row.addWidget(reset_btn, stretch=1)
+
+        self._scroll_toggle = QPushButton("⇅ scroll off")
+        self._scroll_toggle.setCheckable(True)
+        self._scroll_toggle.setChecked(False)
+        self._scroll_toggle.setMinimumHeight(28)
+        self._scroll_toggle.setToolTip(
+            "Toggle whether the scroll wheel changes slider values.\n"
+            "Off by default so scrolling the panel doesn't accidentally move sliders."
+        )
+        self._scroll_toggle.toggled.connect(self._on_scroll_toggle)
+        ctrl_row.addWidget(self._scroll_toggle)
+
+        layout.addLayout(ctrl_row)
         layout.addWidget(hsep())
 
         gg = self._group("Glow")
@@ -304,6 +321,10 @@ class ControlPanel(QWidget):
         lyt.setSpacing(5)
         lyt.setContentsMargins(8, 6, 8, 8)
         return gb
+
+    def _on_scroll_toggle(self, checked: bool) -> None:
+        ResettableSlider._scroll_enabled = checked
+        self._scroll_toggle.setText("⇅ scroll on" if checked else "⇅ scroll off")
 
     def _wire_sliders(self) -> None:
         pairs = [
