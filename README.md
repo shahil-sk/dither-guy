@@ -36,7 +36,7 @@ The project focuses on providing a simple and straightforward tool for applying 
 
 
 <p align="center">
-  <img src="ui_video.gif" alt="Dither Guy Video Demo" width="100%">
+  <img src="ui_video.gif" alt="Dither Guy Video Demo" width="200%">
 </p>
 
 
