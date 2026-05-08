@@ -7,6 +7,7 @@ import itertools
 import numpy as np
 from PIL import Image
 from PySide6.QtCore import Qt, Signal, QTimer, QUrl
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QScrollArea, QCheckBox, QFileDialog, QMessageBox,
@@ -325,6 +326,39 @@ class ImageTab(QWidget):
         )
         if path:
             self._load(path)
+
+    def load_from_qimage(self, qimg: QImage) -> None:
+        """Load a QImage (e.g. pasted from clipboard) as the source image."""
+        # Normalise to RGB32 so the byte layout is predictable
+        qimg = qimg.convertToFormat(QImage.Format.Format_RGB32)
+        w, h = qimg.width(), qimg.height()
+        ptr  = qimg.bits()
+        # bits() returns a sip.voidptr; convert to bytes then numpy
+        arr = np.frombuffer(ptr, dtype=np.uint8).reshape((h, w, 4))
+        # QImage RGB32 stores pixels as 0xffRRGGBB in little-endian → BGRA byte order
+        pil_img = Image.fromarray(arr[:, :, ::-1][:, :, 1:], mode="RGB")
+        if pil_img.width * pil_img.height > _MAX_PIXELS:
+            ans = QMessageBox.question(
+                self, "Large Image",
+                f"Image is {pil_img.width}×{pil_img.height}. Continue?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if ans != QMessageBox.Yes:
+                return
+        self.original_img = pil_img
+        self._history.clear()
+        self.undo_btn.setEnabled(False)
+        self.src_canvas.set_image(pil_to_pixmap(self.original_img))
+        self.src_canvas.setStyleSheet(f"background:{_P0};")
+        self._refresh_info()
+        self.process()
+
+    def get_result_pixmap(self) -> Optional[QPixmap]:
+        """Return the current dithered-output pixmap, or None if nothing processed yet."""
+        pm = self.canvas.pixmap()
+        if pm is None or pm.isNull():
+            return None
+        return pm
 
     def save_file(self) -> None:
         if self.dithered_img is None:
