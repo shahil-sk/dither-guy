@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QAction
+from PySide6.QtGui import QIcon, QAction, QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout,
     QSplitter, QTabWidget, QToolBar, QLabel,
@@ -126,7 +126,9 @@ class DitherGuy(QMainWindow):
             return a
 
         act("open",  "Ctrl+O", self._open,  "Open image (Ctrl+O)")
+        act("paste", "Ctrl+V", self._paste_from_clipboard, "Paste image from clipboard (Ctrl+V)")
         act("save",  "Ctrl+S", self._save,  "Save output (Ctrl+S)")
+        act("copy",  "Ctrl+Shift+C", self._copy_result_to_clipboard, "Copy dithered result to clipboard (Ctrl+Shift+C)")
         act("batch", "Ctrl+B", self._batch, "Batch process folder (Ctrl+B)")
         tb.addSeparator()
         act("zoom +", "Ctrl+=", self._zoom_in,  "Zoom in (Ctrl+=)")
@@ -177,6 +179,32 @@ class DitherGuy(QMainWindow):
             self.image_tab.schedule(preview=True)
 
     def _open(self):  self._active().open_file()
+
+    def _paste_from_clipboard(self):
+        """Load an image directly from the system clipboard into the image tab."""
+        clipboard = QApplication.clipboard()
+        mime = clipboard.mimeData()
+        if mime.hasImage():
+            qimg: QImage = clipboard.image()
+            if not qimg.isNull():
+                # Switch to image tab if needed
+                self.tabs.setCurrentIndex(0)
+                self.image_tab.load_from_qimage(qimg)
+                self._show_status("pasted image from clipboard")
+                return
+        self._show_status("clipboard has no image")
+
+    def _copy_result_to_clipboard(self):
+        """Copy the current dithered output image to the system clipboard."""
+        if self.tabs.currentIndex() != 0:
+            self._show_status("copy to clipboard is only available in the Image tab")
+            return
+        pixmap: QPixmap | None = self.image_tab.get_result_pixmap()
+        if pixmap is None or pixmap.isNull():
+            self._show_status("no result to copy — process an image first")
+            return
+        QApplication.clipboard().setPixmap(pixmap)
+        self._show_status("result copied to clipboard")
 
     def _save(self):
         if self.tabs.currentIndex() == 0:
