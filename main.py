@@ -180,18 +180,44 @@ class DitherGuy(QMainWindow):
 
     def _open(self):  self._active().open_file()
 
-    def _paste_from_clipboard(self):
-        """Load an image directly from the system clipboard into the image tab."""
-        clipboard = QApplication.clipboard()
-        mime = clipboard.mimeData()
+    def _paste_from_clipboard(self) -> None:
+        """Load an image from the system clipboard into the image tab."""
+        cb   = QApplication.clipboard()
+        mime = cb.mimeData()
+
+        def _load(qimg: QImage) -> None:
+            self.tabs.setCurrentIndex(0)
+            self.image_tab.load_from_qimage(qimg)
+            self._show_status("pasted image from clipboard")
+
+        # ── 1. Qt native image ─────────────────────────────────────────────
         if mime.hasImage():
-            qimg: QImage = clipboard.image()
+            qimg = cb.image()
             if not qimg.isNull():
-                # Switch to image tab if needed
-                self.tabs.setCurrentIndex(0)
-                self.image_tab.load_from_qimage(qimg)
-                self._show_status("pasted image from clipboard")
+                _load(qimg)
                 return
+
+        # ── 2. Raw bytes under explicit MIME types (Linux/X11, browsers) ───
+        for fmt in ("image/png", "image/bmp", "image/jpeg",
+                    "image/jpg", "image/tiff", "image/webp"):
+            if mime.hasFormat(fmt):
+                data = mime.data(fmt)
+                if data and not data.isEmpty():
+                    qimg = QImage()
+                    if qimg.loadFromData(bytes(data)) and not qimg.isNull():
+                        _load(qimg)
+                        return
+
+        # ── 3. File URL (copied file in file manager) ──────────────────────
+        if mime.hasUrls():
+            for url in mime.urls():
+                path = url.toLocalFile()
+                if path and Path(path).suffix.lower() in self.image_tab._DROP_EXTS:
+                    self.tabs.setCurrentIndex(0)
+                    self.image_tab._load(path)
+                    self._show_status(f"pasted from {Path(path).name}")
+                    return
+
         self._show_status("clipboard has no image")
 
     def _copy_result_to_clipboard(self):
