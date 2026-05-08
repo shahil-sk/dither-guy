@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -44,7 +46,7 @@ class MethodPicker(QWidget):
         self._combo.setToolTip("Dithering algorithm")
 
         for group, members in METHOD_GROUPS.items():
-            self._combo.addItem(f"── {group} ──")
+            self._combo.addItem(f"\u2500\u2500 {group} \u2500\u2500")
             header = self._combo.model().item(self._combo.count() - 1)
             header.setEnabled(False)
             header.setForeground(QColor(_AM))
@@ -126,7 +128,7 @@ class ControlPanel(QWidget):
         )
         _, self._thr_val,  self.thresh_sl = make_slider(
             dg.layout(), "threshold",  0, 255, 128,
-            tooltip="Binarisation threshold (0–255)",
+            tooltip="Binarisation threshold (0\u2013255)",
         )
         layout.addWidget(dg)
 
@@ -144,7 +146,7 @@ class ControlPanel(QWidget):
             tooltip="Colour saturation multiplier (100 = no change)",
         )
         _, self._hu_val, self.hue_sl = make_slider(
-            adj.layout(), "hue", 0, 359, 0, "{v}°",
+            adj.layout(), "hue", 0, 359, 0, "{v}\u00b0",
             tooltip="Hue rotation in degrees",
         )
         _, self._bl_val, self.blur_sl   = make_slider(
@@ -168,7 +170,7 @@ class ControlPanel(QWidget):
         )
         layout.addWidget(pre)
 
-        reset_btn = QPushButton("↺  Reset Adjustments")
+        reset_btn = QPushButton("\u21ba  Reset Adjustments")
         reset_btn.clicked.connect(self._reset)
         reset_btn.setMinimumHeight(28)
         reset_btn.setToolTip("Reset image adjustments and filters to defaults")
@@ -229,7 +231,7 @@ class ControlPanel(QWidget):
 
         custom_row = QHBoxLayout()
         self.custom_pal_btn   = QPushButton("+ Add")
-        self.clear_custom_btn = QPushButton("✕ Clear")
+        self.clear_custom_btn = QPushButton("\u2715 Clear")
         for b in (self.custom_pal_btn, self.clear_custom_btn):
             b.setMinimumHeight(26)
         self.custom_pal_btn.setToolTip("Add a colour to the custom palette")
@@ -312,7 +314,7 @@ class ControlPanel(QWidget):
             (self.bright_sl, self._br_val,  "{v}%"),
             (self.contr_sl,  self._co_val,  "{v}%"),
             (self.sat_sl,    self._sa_val,  "{v}%"),
-            (self.hue_sl,    self._hu_val,  "{v}°"),
+            (self.hue_sl,    self._hu_val,  "{v}\u00b0"),
             (self.blur_sl,   self._bl_val,  "{v}"),
             (self.sharp_sl,  self._sh_val,  "{v}"),
             (self.pre_denoise_sl,  self._prd_val, "{v}"),
@@ -343,11 +345,65 @@ class ControlPanel(QWidget):
         self._refresh_value_labels()
         self.params_changed.emit()
 
+    def randomize(self) -> None:
+        """Randomize all dither properties and emit params_changed."""
+        ri = random.randint
+
+        # Algorithm
+        method = random.choice(METHODS)
+        self.method_picker.set_method(method)
+
+        # Dither
+        sliders_block = [
+            (self.pixel_sl,        ri(1, 20)),
+            (self.thresh_sl,       ri(0, 255)),
+            # Adjustments  (keep brightness/contrast/sat in a sane range)
+            (self.bright_sl,       ri(60, 160)),
+            (self.contr_sl,        ri(60, 160)),
+            (self.sat_sl,          ri(0, 200)),
+            (self.hue_sl,          ri(0, 359)),
+            (self.blur_sl,         ri(0, 5)),
+            (self.sharp_sl,        ri(0, 3)),
+            # Pre-dither filters
+            (self.pre_denoise_sl,  ri(0, 5)),
+            (self.pre_smooth_sl,   ri(0, 4)),
+            # Glow
+            (self.glow_r_sl,       ri(0, 20)),
+            (self.glow_i_sl,       ri(0, 60)),
+            # Post-dither filters
+            (self.post_denoise_sl, ri(0, 5)),
+            (self.post_smooth_sl,  ri(0, 4)),
+        ]
+        for sl, val in sliders_block:
+            sl.blockSignals(True)
+            sl.setValue(val)
+            sl.blockSignals(False)
+        self._refresh_value_labels()
+
+        # Foreground colour
+        self.current_color = (ri(0, 255), ri(0, 255), ri(0, 255))
+        self._refresh_swatch()
+
+        # Palette  (exclude "Custom" which has no colours by default)
+        named_palettes = [n for n in PALETTES if n != "Custom"]
+        if named_palettes:
+            pal_name = random.choice(named_palettes)
+            idx = self.palette_combo.findText(pal_name)
+            if idx >= 0:
+                self.palette_combo.blockSignals(True)
+                self.palette_combo.setCurrentIndex(idx)
+                self.palette_combo.blockSignals(False)
+                self._refresh_palette_swatches()
+
+        self.params_changed.emit()
+
     def _refresh_value_labels(self) -> None:
+        self._pix_val.setText(str(self.pixel_sl.value()))
+        self._thr_val.setText(str(self.thresh_sl.value()))
         self._br_val.setText(f"{self.bright_sl.value()}%")
         self._co_val.setText(f"{self.contr_sl.value()}%")
         self._sa_val.setText(f"{self.sat_sl.value()}%")
-        self._hu_val.setText(f"{self.hue_sl.value()}°")
+        self._hu_val.setText(f"{self.hue_sl.value()}\u00b0")
         self._bl_val.setText(str(self.blur_sl.value()))
         self._sh_val.setText(str(self.sharp_sl.value()))
         self._prd_val.setText(str(self.pre_denoise_sl.value()))

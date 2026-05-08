@@ -7,6 +7,7 @@ import itertools
 import numpy as np
 from PIL import Image
 from PySide6.QtCore import Qt, Signal, QTimer, QUrl
+from PySide6.QtGui import QImage, QPixmap, QGuiApplication
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QScrollArea, QCheckBox, QFileDialog, QMessageBox,
@@ -325,6 +326,107 @@ class ImageTab(QWidget):
         )
         if path:
             self._load(path)
+
+    def load_from_qimage(self, qimg: QImage) -> None:
+        """Load a QImage (e.g. pasted from clipboard) as the source image."""
+        # Normalise to RGB32 so the byte layout is predictable
+        qimg = qimg.convertToFormat(QImage.Format.Format_RGB32)
+        w, h = qimg.width(), qimg.height()
+        ptr  = qimg.bits()
+        # bits() returns a sip.voidptr; convert to bytes then numpy
+        arr = np.frombuffer(ptr, dtype=np.uint8).reshape((h, w, 4))
+        # QImage RGB32 stores pixels as 0xffRRGGBB in little-endian → BGRA byte order
+        pil_img = Image.fromarray(arr[:, :, ::-1][:, :, 1:], mode="RGB")
+        if pil_img.width * pil_img.height > _MAX_PIXELS:
+            ans = QMessageBox.question(
+                self, "Large Image",
+                f"Image is {pil_img.width}×{pil_img.height}. Continue?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if ans != QMessageBox.Yes:
+                return
+        self.original_img = pil_img
+        self._history.clear()
+        self.undo_btn.setEnabled(False)
+        self.src_canvas.set_image(pil_to_pixmap(self.original_img))
+        self.src_canvas.setStyleSheet(f"background:{_P0};")
+        self._refresh_info()
+        self.process()
+
+    # ── Clipboard paste ──────────────────────────────────────────────────────
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key_V and (event.modifiers() & Qt.ControlModifier):
+            self._paste_from_clipboard()
+        else:
+            super().keyPressEvent(event)
+
+    def _paste_from_clipboard(self) -> None:
+        """
+        Load an image from the clipboard.
+
+        QMimeData.hasImage() is unreliable on Linux/X11 and Windows — images
+        copied from browsers, screenshot tools, or file managers are typically
+        exposed as:
+          1. Qt image (hasImage == True)          — ideal path
+          2. Raw PNG/JPEG/BMP bytes under an
+             explicit MIME type                   — common on Linux
+          3. A file:// URI in text/uri-list       — common when copying files
+             in a file manager
+        We attempt all three in order.
+        """
+        cb   = QGuiApplication.clipboard()
+        mime = cb.mimeData()
+
+        # ── 1. Qt native image ─────────────────────────────────────────────
+        if mime.hasImage():
+            qimg = cb.image()
+            if not qimg.isNull():
+                self.load_from_qimage(qimg)
+                self.status_message.emit("pasted from clipboard")
+                return
+
+        # ── 2. Raw encoded bytes under explicit image MIME types ───────────
+        for fmt in ("image/png", "image/bmp", "image/jpeg",
+                    "image/jpg", "image/tiff", "image/webp",
+                    "image/x-bmp", "application/octet-stream"):
+            if mime.hasFormat(fmt):
+                data = mime.data(fmt)
+                if data and not data.isEmpty():
+                    qimg = QImage()
+                    raw = bytes(data)
+                    if qimg.loadFromData(raw):
+                        if not qimg.isNull():
+                            self.load_from_qimage(qimg)
+                            self.status_message.emit("pasted from clipboard")
+                            return
+
+        # ── 3. File URL (e.g. copied file in file manager) ─────────────────
+        if mime.hasUrls():
+            for url in mime.urls():
+                path = url.toLocalFile()
+                if path and Path(path).suffix.lower() in self._DROP_EXTS:
+                    self._load(path)
+                    self.status_message.emit(f"pasted from {Path(path).name}")
+                    return
+
+        # ── 4. Text that looks like a local path ───────────────────────────
+        if mime.hasText():
+            text = mime.text().strip()
+            p = Path(text)
+            if p.exists() and p.suffix.lower() in self._DROP_EXTS:
+                self._load(str(p))
+                self.status_message.emit(f"pasted from {p.name}")
+                return
+
+        self.status_message.emit("nothing to paste — no image found in clipboard")
+
+    def get_result_pixmap(self) -> Optional[QPixmap]:
+        """Return the current dithered-output pixmap at full resolution."""
+        pm = self.canvas.original_pixmap
+        if pm is None or pm.isNull():
+            return None
+        return pm
 
     def save_file(self) -> None:
         if self.dithered_img is None:

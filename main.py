@@ -39,7 +39,7 @@ def _build_info_str() -> str:
     ]
     if jit_tag:
         parts.append(jit_tag)
-    return "  ·  ".join(parts)
+    return "  \u00b7  ".join(parts)
 
 
 class DitherGuy(QMainWindow):
@@ -136,6 +136,8 @@ class DitherGuy(QMainWindow):
         tb.addSeparator()
         act("undo",  "Ctrl+Z", lambda: self.image_tab.undo(), "Undo last image operation (Ctrl+Z)")
         tb.addSeparator()
+        act("randomize", "Ctrl+R", self._randomize, "Randomize all properties (Ctrl+R)")
+        tb.addSeparator()
 
         self.zoom_lbl = QLabel("fit")
         self.zoom_lbl.setMinimumWidth(52)
@@ -187,6 +189,10 @@ class DitherGuy(QMainWindow):
     def _batch(self):
         dlg = BatchDialog(self.controls.get_params, self)
         dlg.exec()
+
+    def _randomize(self):
+        self.controls.randomize()
+        self._show_status("randomized")
 
     def _zoom_in(self):  self._active().zoom_in();  self._update_zoom_lbl()
     def _zoom_out(self): self._active().zoom_out(); self._update_zoom_lbl()

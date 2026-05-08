@@ -104,7 +104,6 @@ class ZoomableLabel(QLabel):
         self.setMinimumSize(360, 260)
         self.setScaledContents(False)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # Style the drop-hint text
         self.setStyleSheet(
             f"font-family:{_MONO_FONT}; font-size:13px;"
             f"color:{_FG3}; background:{_P0};"
@@ -158,6 +157,33 @@ class ZoomableLabel(QLabel):
 
 
 # ---------------------------------------------------------------------------
+# Resettable slider
+# Double-click resets to default value.
+# Scroll-wheel only changes value when _scroll_enabled is True.
+# ---------------------------------------------------------------------------
+
+class ResettableSlider(QSlider):
+    """QSlider with double-click-to-reset and opt-in scroll-wheel."""
+
+    # Class-level flag shared across all instances; toggled by ControlPanel.
+    _scroll_enabled: bool = False
+
+    def __init__(self, orientation, default: int, parent=None):
+        super().__init__(orientation, parent)
+        self._default = default
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        self.setValue(self._default)
+        event.accept()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if ResettableSlider._scroll_enabled:
+            super().wheelEvent(event)
+        else:
+            event.ignore()  # pass up to ScrollArea so panel still scrolls
+
+
+# ---------------------------------------------------------------------------
 # Compact slider factory
 # ---------------------------------------------------------------------------
 
@@ -200,13 +226,13 @@ def make_slider(
     rl.addWidget(val_lbl)
     parent_layout.addWidget(row)
 
-    sl = QSlider(Qt.Horizontal)
+    sl = ResettableSlider(Qt.Horizontal, default=val)
     sl.setMinimum(mn)
     sl.setMaximum(mx)
     sl.setValue(val)
     sl.setFixedHeight(20)
     if tooltip:
-        sl.setToolTip(tooltip)
+        sl.setToolTip(f"{tooltip}  ·  double-click to reset")
     parent_layout.addWidget(sl)
 
     return lbl, val_lbl, sl
