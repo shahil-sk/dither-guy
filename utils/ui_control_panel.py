@@ -362,17 +362,17 @@ class ControlPanel(QWidget):
             (self.contr_sl,        ri(60, 160)),
             (self.sat_sl,          ri(0, 200)),
             (self.hue_sl,          ri(0, 359)),
-            (self.blur_sl,         ri(0, 5)),
+            (self.blur_sl,         ri(0, 3)),
             (self.sharp_sl,        ri(0, 3)),
             # Pre-dither filters
-            (self.pre_denoise_sl,  ri(0, 5)),
-            (self.pre_smooth_sl,   ri(0, 4)),
+            # (self.pre_denoise_sl,  ri(0, 5)),
+            # (self.pre_smooth_sl,   ri(0, 4)),
             # Glow
-            (self.glow_r_sl,       ri(0, 20)),
-            (self.glow_i_sl,       ri(0, 60)),
+            (self.glow_r_sl,       ri(0, 8)),
+            (self.glow_i_sl,       ri(0, 50)),
             # Post-dither filters
-            (self.post_denoise_sl, ri(0, 5)),
-            (self.post_smooth_sl,  ri(0, 4)),
+            # (self.post_denoise_sl, ri(0, 5)),
+            # (self.post_smooth_sl,  ri(0, 4)),
         ]
         for sl, val in sliders_block:
             sl.blockSignals(True)
