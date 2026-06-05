@@ -79,59 +79,14 @@ class ImageTab(QWidget):
         )
         layout.addWidget(self.info_lbl)
 
-        # ── Split view: left=source, right=dithered ────────────────────────
-        self._splitter = QSplitter(Qt.Horizontal)
-        self._splitter.setHandleWidth(2)
-        self._splitter.setStyleSheet(
-            f"QSplitter::handle {{ background:{_P5}; }}"
-        )
-
-        src_scroll = QScrollArea()
-        src_scroll.setWidgetResizable(True)
-        self._src_label = QLabel("SOURCE")
-        self._src_label.setAlignment(Qt.AlignCenter)
-        self._src_label.setStyleSheet(
-            f"font-family:{_MONO_FONT}; font-size:9px; color:{_FG3};"
-            f"background:{_P0}; padding:2px 6px;"
-        )
-        self.src_canvas = ZoomableLabel("")
-        self.src_canvas.setStyleSheet(
-            f"font-family:{_MONO_FONT}; font-size:14px; color:{_P5}; background:{_P0};"
-        )
-        src_wrap = QWidget()
-        src_wrap.setStyleSheet(f"background:{_P0};")
-        src_layout = QVBoxLayout(src_wrap)
-        src_layout.setContentsMargins(0, 0, 0, 0)
-        src_layout.setSpacing(0)
-        src_layout.addWidget(self._src_label)
-        src_scroll.setWidget(self.src_canvas)
-        src_layout.addWidget(src_scroll, stretch=1)
-        self._splitter.addWidget(src_wrap)
-
-        dst_scroll = QScrollArea()
-        dst_scroll.setWidgetResizable(True)
-        self._dst_label = QLabel("DITHERED")
-        self._dst_label.setAlignment(Qt.AlignCenter)
-        self._dst_label.setStyleSheet(
-            f"font-family:{_MONO_FONT}; font-size:9px; color:{_FG3};"
-            f"background:{_P0}; padding:2px 6px;"
-        )
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
         self.canvas = ZoomableLabel("▣ Drop image here · Ctrl+O")
         self.canvas.setStyleSheet(
             f"font-family:{_MONO_FONT}; font-size:14px; color:{_P5}; background:{_P0};"
         )
-        dst_wrap = QWidget()
-        dst_wrap.setStyleSheet(f"background:{_P0};")
-        dst_layout = QVBoxLayout(dst_wrap)
-        dst_layout.setContentsMargins(0, 0, 0, 0)
-        dst_layout.setSpacing(0)
-        dst_layout.addWidget(self._dst_label)
-        dst_scroll.setWidget(self.canvas)
-        dst_layout.addWidget(dst_scroll, stretch=1)
-        self._splitter.addWidget(dst_wrap)
-
-        self._splitter.setSizes([1, 1])
-        layout.addWidget(self._splitter, stretch=1)
+        scroll.setWidget(self.canvas)
+        layout.addWidget(scroll, stretch=1)
 
         self.histogram = HistogramWidget()
         self.histogram.setVisible(False)
@@ -163,16 +118,7 @@ class ImageTab(QWidget):
 
         bl1.addWidget(vsep())
 
-        # Split-view toggle
-        self._split_btn = QPushButton("⊟ Split")
-        self._split_btn.setCheckable(True)
-        self._split_btn.setChecked(True)
-        self._split_btn.setMinimumHeight(28)
-        self._split_btn.setToolTip("Toggle source / dithered split view")
-        self._split_btn.toggled.connect(self._toggle_split)
-        bl1.addWidget(self._split_btn)
 
-        bl1.addWidget(vsep())
         self.hist_cb = QCheckBox("Histogram")
         self.hist_cb.stateChanged.connect(lambda s: self.histogram.setVisible(bool(s)))
         bl1.addWidget(self.hist_cb)
@@ -202,16 +148,7 @@ class ImageTab(QWidget):
         bl1.addWidget(self.undo_btn)
         layout.addWidget(bar1)
 
-    # ── Split toggle ──────────────────────────────────────────────────
 
-    def _toggle_split(self, checked: bool) -> None:
-        self._split_visible = checked
-        src_pane = self._splitter.widget(0)
-        if checked:
-            src_pane.show()
-            self._splitter.setSizes([1, 1])
-        else:
-            src_pane.hide()
 
     # ── Drag & drop ──────────────────────────────────────────────────
 
@@ -313,8 +250,7 @@ class ImageTab(QWidget):
             self.undo_btn.setEnabled(False)
             self.last_dir = str(Path(path).parent)
             # show source in left pane immediately
-            self.src_canvas.set_image(pil_to_pixmap(self.original_img))
-            self.src_canvas.setStyleSheet(f"background:{_P0};")
+            pass
             self._refresh_info()
             self.status_message.emit(f"loaded {Path(path).name}")
             self.process()
@@ -349,8 +285,7 @@ class ImageTab(QWidget):
         self.original_img = pil_img
         self._history.clear()
         self.undo_btn.setEnabled(False)
-        self.src_canvas.set_image(pil_to_pixmap(self.original_img))
-        self.src_canvas.setStyleSheet(f"background:{_P0};")
+
         self._refresh_info()
         self.process()
 
@@ -474,8 +409,7 @@ class ImageTab(QWidget):
             return
         self._push_history()
         self.original_img = fn(self.original_img)
-        self.src_canvas.set_image(pil_to_pixmap(self.original_img))
-        self.src_canvas.setStyleSheet(f"background:{_P0};")
+
         self._refresh_info()
         self.process()
 
@@ -521,8 +455,6 @@ class ImageTab(QWidget):
             return
         self._push_history()
         self.original_img = self.original_img.crop((l, t, x2, y2))
-        self.src_canvas.set_image(pil_to_pixmap(self.original_img))
-        self.src_canvas.setStyleSheet(f"background:{_P0};")
         self.status_message.emit(
             f"cropped → {self.original_img.width}×{self.original_img.height}"
         )
@@ -534,8 +466,6 @@ class ImageTab(QWidget):
             return
         self.original_img = self._history.pop()
         self.undo_btn.setEnabled(bool(self._history))
-        self.src_canvas.set_image(pil_to_pixmap(self.original_img))
-        self.src_canvas.setStyleSheet(f"background:{_P0};")
         self.status_message.emit("undo")
         self._refresh_info()
         self.process()
@@ -719,17 +649,30 @@ class VideoTab(QWidget):
         )
         layout.addWidget(self.export_bar)
 
-        seek_container = QWidget()
-        seek_container.setStyleSheet(f"background:{_P0};")
-        seek_layout = QHBoxLayout(seek_container)
-        seek_layout.setContentsMargins(8, 3, 8, 0)
-        seek_layout.setSpacing(6)
+        # ── Unified Player GUI ─────────────────────────────────────────────
+        player_frame = QWidget()
+        player_frame.setStyleSheet(
+            f"QWidget {{ background:{_P1}; border-top:1px solid {_P5}; }}"
+            f"QPushButton {{ background:{_P4}; border:1px solid {_P5}; border-radius:4px; color:{_FG}; font-size:13px; padding:4px 8px; }}"
+            f"QPushButton:hover {{ background:{_P5}; border-color:{_P6}; }}"
+            f"QPushButton:pressed {{ background:{_P3}; }}"
+            f"QPushButton#accent {{ background:{_AE}; border:1px solid {_AE}; color:#000; font-weight:bold; }}"
+            f"QPushButton#accent:hover {{ background:#8AEB8A; }}"
+            f"QSlider::groove:horizontal {{ border:1px solid {_P5}; height:6px; background:{_P2}; border-radius:3px; }}"
+            f"QSlider::sub-page:horizontal {{ background:{_AE}; border-radius:3px; }}"
+            f"QSlider::handle:horizontal {{ background:#FFF; border:1px solid #777; width:12px; margin:-3px 0; border-radius:6px; }}"
+        )
+        vbl = QVBoxLayout(player_frame)
+        vbl.setContentsMargins(12, 12, 12, 12)
+        vbl.setSpacing(8)
+
+        # Top row: Seek slider
+        seek_layout = QHBoxLayout()
+        seek_layout.setContentsMargins(0, 0, 0, 0)
+        seek_layout.setSpacing(10)
 
         self._pos_lbl = QLabel("0:00")
-        self._pos_lbl.setStyleSheet(
-            f"font-family:{_MONO_FONT}; font-size:11px; color:{_FG2};"
-            "min-width:40px;"
-        )
+        self._pos_lbl.setStyleSheet(f"font-family:{_MONO_FONT}; font-size:12px; color:{_FG2}; min-width:35px;")
         self._pos_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         self.seek_bar = QSlider(Qt.Horizontal)
@@ -737,102 +680,91 @@ class VideoTab(QWidget):
         self.seek_bar.setMaximum(1000)
         self.seek_bar.setValue(0)
         self.seek_bar.setEnabled(False)
-        self.seek_bar.setFixedHeight(18)
+        self.seek_bar.setCursor(Qt.PointingHandCursor)
         self.seek_bar.setToolTip("Seek / scrub  (← / → keys for ±5 s)")
         self.seek_bar.sliderPressed.connect(self._on_seek_press)
         self.seek_bar.sliderMoved.connect(self._on_seek_move)
         self.seek_bar.sliderReleased.connect(self._on_seek_release)
 
         self._dur_lbl = QLabel("0:00")
-        self._dur_lbl.setStyleSheet(
-            f"font-family:{_MONO_FONT}; font-size:11px; color:{_FG3};"
-            "min-width:40px;"
-        )
+        self._dur_lbl.setStyleSheet(f"font-family:{_MONO_FONT}; font-size:12px; color:{_FG3}; min-width:35px;")
         self._dur_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
         seek_layout.addWidget(self._pos_lbl)
         seek_layout.addWidget(self.seek_bar, stretch=1)
         seek_layout.addWidget(self._dur_lbl)
-        layout.addWidget(seek_container)
+        vbl.addLayout(seek_layout)
 
-        bar = QWidget()
-        bar.setStyleSheet(f"background:{_P0}; border-top:1px solid {_P5};")
-        bl = QHBoxLayout(bar)
-        bl.setContentsMargins(8, 5, 8, 5)
-        bl.setSpacing(4)
+        # Bottom row: Controls
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(6)
 
         def _tbtn(label: str, slot, tip: str = "", oid: str = "") -> QPushButton:
             b = QPushButton(label)
             b.setMinimumHeight(28)
-            b.setFixedWidth(56)
-            if oid:
-                b.setObjectName(oid)
+            b.setCursor(Qt.PointingHandCursor)
+            if oid: b.setObjectName(oid)
             b.setToolTip(tip)
             b.clicked.connect(slot)
-            bl.addWidget(b)
+            btn_layout.addWidget(b)
             return b
 
-        self.rewind_btn = _tbtn("⏮",      self._rewind,      "Rewind to start  (Home)")
-        self.play_btn   = _tbtn("▶",      self.toggle_play,  "Play / Pause  (Space)",  "accent")
-        self.stop_btn   = _tbtn("■",      self.stop,         "Stop & rewind  (S)")
-        self.step_f_btn = _tbtn("⏭",      self._end,         "Jump to end  (End)")
+        self.rewind_btn = _tbtn("⏮", self._rewind, "Rewind to start  (Home)")
+        self.play_btn   = _tbtn("▶", self.toggle_play, "Play / Pause  (Space)", "accent")
+        self.play_btn.setFixedWidth(64)
+        self.stop_btn   = _tbtn("■", self.stop, "Stop & rewind  (S)")
+        self.step_f_btn = _tbtn("⏭", self._end, "Jump to end  (End)")
 
-        bl.addWidget(vsep())
+        btn_layout.addSpacing(12)
 
         self.loop_btn = QPushButton("⟳  Loop")
         self.loop_btn.setCheckable(True)
         self.loop_btn.setMinimumHeight(28)
+        self.loop_btn.setCursor(Qt.PointingHandCursor)
         self.loop_btn.setToolTip("Toggle loop playback  (L)")
         self.loop_btn.setStyleSheet(
-            f"QPushButton {{ background:{_P4}; border:1px solid {_P5}; border-radius:3px;"
-            f"color:{_FG3}; font-size:11px; padding:5px 10px; }}"
-            f"QPushButton:checked {{ background:{_G3}; border-color:{_G2}; color:{_G0}; }}"
-            f"QPushButton:hover {{ border-color:{_P6}; color:{_FG}; }}"
+            f"QPushButton:checked {{ background:{_G3}; border-color:{_G2}; color:{_G0}; font-weight:bold; }}"
         )
         self.loop_btn.toggled.connect(self._on_loop_toggled)
-        bl.addWidget(self.loop_btn)
+        btn_layout.addWidget(self.loop_btn)
 
-        bl.addWidget(vsep())
+        btn_layout.addSpacing(12)
 
-        # ── Audio checkbox ─────────────────────────────────────────────────
-        self.audio_cb = QCheckBox("Include audio")
+        self.audio_cb = QCheckBox("Audio")
         self.audio_cb.setChecked(True)
-        self.audio_cb.setToolTip(
-            "Play audio in preview · mux into exported video (requires ffmpeg in PATH)"
-        )
+        self.audio_cb.setToolTip("Play audio in preview / Export with audio")
         self.audio_cb.stateChanged.connect(lambda _: self._sync_audio_volume())
-        bl.addWidget(self.audio_cb)
+        btn_layout.addWidget(self.audio_cb)
 
-        bl.addStretch()
+        btn_layout.addStretch()
 
         self._frame_badge = QLabel("-- / --")
         self._frame_badge.setStyleSheet(
             f"font-family:{_MONO_FONT}; font-size:11px; color:{_FG2};"
-            f"background:{_P2}; border:1px solid {_P5}; border-radius:2px;"
-            "padding:2px 8px; margin:3px;"
+            f"background:{_P2}; border:1px solid {_P5}; border-radius:3px; padding:3px 8px;"
         )
-        self._frame_badge.setToolTip("Current frame / total frames")
-        bl.addWidget(self._frame_badge)
+        btn_layout.addWidget(self._frame_badge)
 
         self._fps_badge = QLabel("-- fps")
         self._fps_badge.setStyleSheet(
             f"font-family:{_MONO_FONT}; font-size:11px; color:{_FG3};"
-            f"background:{_P2}; border:1px solid {_P5}; border-radius:2px;"
-            "padding:2px 8px; margin:3px;"
+            f"background:{_P2}; border:1px solid {_P5}; border-radius:3px; padding:3px 8px;"
         )
-        self._fps_badge.setToolTip("Source video frame rate")
-        bl.addWidget(self._fps_badge)
+        btn_layout.addWidget(self._fps_badge)
 
-        bl.addWidget(vsep())
+        btn_layout.addSpacing(12)
 
         self.export_btn = QPushButton("⥅ Export")
         self.export_btn.setObjectName("accent")
         self.export_btn.setMinimumHeight(28)
+        self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.setToolTip("Export dithered video to MP4")
         self.export_btn.clicked.connect(self._on_export_click)
-        bl.addWidget(self.export_btn)
+        btn_layout.addWidget(self.export_btn)
 
-        layout.addWidget(bar)
+        vbl.addLayout(btn_layout)
+        layout.addWidget(player_frame)
 
         if not _CV2:
             warn = QLabel("⚠ opencv-python not installed — video disabled")
