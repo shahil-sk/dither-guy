@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path, tempfile
+from pathlib import Path
+import tempfile
 from typing import Optional
 import itertools
 
