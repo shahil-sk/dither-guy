@@ -291,7 +291,7 @@ def palette_dither(image: Image.Image, palette: list[tuple],
     return Image.fromarray(result, mode="RGB")
 
 
-def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image:
+def palette_dither_fast(image: Image.Image, palette: list[tuple], use_gpu: bool = False) -> Image.Image:
     arr  = np.array(image.convert("RGB"), dtype=np.float32)
     pal  = np.asarray(palette, dtype=np.float32)
     h, w = arr.shape[:2]
@@ -299,6 +299,16 @@ def palette_dither_fast(image: Image.Image, palette: list[tuple]) -> Image.Image
     bayer = tile(_BAYER_4x4, h, w)
     noise = (bayer - 128.0) * 0.3
     noisy = np.clip(arr + noise[:, :, np.newaxis], 0, 255)
+
+    if use_gpu:
+        try:
+            from .gpu_kernels import gpu_palette_batch
+            # Add batch dimension and process
+            result = gpu_palette_batch(noisy[np.newaxis, ...], pal)[0]
+            return Image.fromarray(result, mode="RGB")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
 
     flat  = noisy.reshape(-1, 3)
     idxs  = _nearest_palette_indices_rgb(flat, pal)
@@ -798,7 +808,7 @@ def apply_dither(
         rgb = rgb.resize((sw, sh), Image.NEAREST)
 
         if preview:
-            result = palette_dither_fast(rgb, palette)
+            result = palette_dither_fast(rgb, palette, use_gpu=use_gpu)
         else:
             result = palette_dither(rgb, palette, method=method,
                                     threshold=threshold, use_gpu=use_gpu)
