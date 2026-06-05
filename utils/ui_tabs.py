@@ -657,6 +657,16 @@ class VideoTab(QWidget):
             f"font-family:{_MONO_FONT}; font-size:14px; color:{_P5}; background:{_P0};"
         )
         scroll.setWidget(self.canvas)
+
+        self.hq_warn_lbl = QLabel()
+        self.hq_warn_lbl.setAlignment(Qt.AlignCenter)
+        self.hq_warn_lbl.setStyleSheet(
+            f"font-family:{_MONO_FONT}; font-size:11px; padding:6px;"
+            f"background:#4A3B12; color:#FFC107; border-radius:4px;"
+        )
+        self.hq_warn_lbl.setVisible(False)
+        
+        layout.addWidget(self.hq_warn_lbl)
         layout.addWidget(scroll, stretch=1)
 
         self.export_bar = QProgressBar()
@@ -853,6 +863,18 @@ class VideoTab(QWidget):
         name     = Path(path).name
         w        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h        = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        max_dim = max(w, h)
+        if max_dim > 720:
+            self._preview_scale = 720.0 / max_dim
+            self.hq_warn_lbl.setText(
+                f"⚠️ HQ Video ({w}×{h}): Using proxy preview to prevent lag. Export will be full resolution."
+            )
+            self.hq_warn_lbl.setVisible(True)
+        else:
+            self._preview_scale = 1.0
+            self.hq_warn_lbl.setVisible(False)
+            
         self.info_lbl.setText(
             f"{name}  ·  {w}×{h}  ·  {self._total_frames} fr  ·  {self._fps:.2f} fps  ·  {_fmt_time(duration)}"
         )
@@ -939,6 +961,10 @@ class VideoTab(QWidget):
         ret, frame = self.video_cap.read()
         if not ret:
             return
+            
+        if getattr(self, '_preview_scale', 1.0) < 1.0:
+            frame = cv2.resize(frame, (0, 0), fx=self._preview_scale, fy=self._preview_scale, interpolation=cv2.INTER_AREA)
+            
         self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         self._show(self.current_frame)
         self._update_position_ui(frame_idx, update_bar)
@@ -970,6 +996,10 @@ class VideoTab(QWidget):
                 self._pause()
                 self._seek_to_frame(0)
             return
+            
+        if getattr(self, '_preview_scale', 1.0) < 1.0:
+            frame = cv2.resize(frame, (0, 0), fx=self._preview_scale, fy=self._preview_scale, interpolation=cv2.INTER_AREA)
+            
         self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         self._show(self.current_frame)
         self._update_position_ui(frame_idx)
