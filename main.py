@@ -215,7 +215,7 @@ class DitherGuy(QMainWindow):
             self.view_stack.setCurrentIndex(0)
             self.ctrl_stack.setCurrentIndex(0)
             self.image_tab.last_dir = str(Path(path).parent)
-            self.image_tab._load_image(path)
+            self.image_tab._load(path)
             
         self._update_zoom_lbl()
 

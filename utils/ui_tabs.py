@@ -1088,9 +1088,12 @@ class VideoTab(QWidget):
     def _show(self, img: Image.Image) -> None:
         p = self.get_params()
         if getattr(self, '_frame_worker', None) and self._frame_worker.isRunning():
-            self._frame_worker.stop()
-            self._frame_worker.wait(200)
-            self._frame_worker.deleteLater()
+            if self.is_playing:
+                return  # Drop frame instead of cancelling to ensure frames actually render
+            else:
+                self._frame_worker.stop()
+                self._frame_worker.wait(200)
+                self._frame_worker.deleteLater()
 
         from .workers import FrameDitherWorker
         self._frame_worker = FrameDitherWorker(img, p)
