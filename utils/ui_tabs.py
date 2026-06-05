@@ -825,12 +825,12 @@ class VideoTab(QWidget):
 
         bl.addWidget(vsep())
 
-        export_btn = QPushButton("⥅ Export")
-        export_btn.setObjectName("accent")
-        export_btn.setMinimumHeight(28)
-        export_btn.setToolTip("Export dithered video to MP4")
-        export_btn.clicked.connect(self.export_video)
-        bl.addWidget(export_btn)
+        self.export_btn = QPushButton("⥅ Export")
+        self.export_btn.setObjectName("accent")
+        self.export_btn.setMinimumHeight(28)
+        self.export_btn.setToolTip("Export dithered video to MP4")
+        self.export_btn.clicked.connect(self._on_export_click)
+        bl.addWidget(self.export_btn)
 
         layout.addWidget(bar)
 
@@ -935,7 +935,7 @@ class VideoTab(QWidget):
         self._proxy_dlg = None
         if proxy_path and Path(proxy_path).exists():
             self.hq_warn_lbl.setText(
-                f"⚠️ HQ Video ({orig_w}×{orig_h}): Using proxy preview to prevent lag. Export will be full resolution."
+                f"⚠️ HQ Video ({orig_w}×{orig_h}): Expect lag when using color_palette/Large Video  . Export will be full resolution."
             )
             self.hq_warn_lbl.setVisible(True)
             self._finish_load_video(proxy_path, orig_path, duration, name, orig_w, orig_h)
@@ -1176,7 +1176,32 @@ class VideoTab(QWidget):
         self.export_bar.setVisible(True)
         self.export_bar.setValue(0)
         self.status_message.emit("exporting...")
+        
+        self.export_btn.setText("⨉ Cancel")
+        self.export_btn.setObjectName("")
+        self.export_btn.setStyleSheet(f"background: {_RE}; color: #FFF; font-weight: bold;")
+        
         self.export_worker.start()
+
+    def _on_export_click(self) -> None:
+        if self.export_worker and self.export_worker.isRunning():
+            self._cancel_export()
+        else:
+            self.export_video()
+
+    def _cancel_export(self) -> None:
+        if self.export_worker and self.export_worker.isRunning():
+            self.export_worker.stop()
+            self.export_worker.wait()
+            self.export_worker = None
+            self.export_bar.setVisible(False)
+            self._reset_export_btn()
+            self.status_message.emit("export cancelled")
+
+    def _reset_export_btn(self) -> None:
+        self.export_btn.setText("⥅ Export")
+        self.export_btn.setObjectName("accent")
+        self.export_btn.setStyleSheet("")
 
     def _on_export_progress(self, cur: int, total: int) -> None:
         self.export_bar.setMaximum(total)
@@ -1188,6 +1213,7 @@ class VideoTab(QWidget):
             return
         self.export_worker = None
         self.export_bar.setVisible(False)
+        self._reset_export_btn()
         self.status_message.emit("export complete")
         QMessageBox.information(self, "Done", "Video exported.")
         if self.video_cap:
