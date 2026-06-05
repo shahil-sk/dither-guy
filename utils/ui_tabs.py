@@ -908,6 +908,8 @@ class VideoTab(QWidget):
         if max_dim > 720:
             scale = 720.0 / max_dim
             tw, th = int(w * scale), int(h * scale)
+            tw -= tw % 2
+            th -= th % 2
             
             self._proxy_dlg = QProgressDialog("Generating proxy video to prevent lag...", "", 0, self._total_frames, self)
             self._proxy_dlg.setWindowTitle("Compressing Video for Preview")
