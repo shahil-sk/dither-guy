@@ -89,11 +89,10 @@ class DitherGuy(QMainWindow):
         splitter = QSplitter(Qt.Horizontal)
         root.addWidget(splitter)
 
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self.image_tab, "  Image  ")
-        self.tabs.addTab(self.video_tab, "  Video  ")
-        self.tabs.currentChanged.connect(self._on_tab_changed)
-        splitter.addWidget(self.tabs)
+        self.view_stack = QStackedWidget()
+        self.view_stack.addWidget(self.image_tab)
+        self.view_stack.addWidget(self.video_tab)
+        splitter.addWidget(self.view_stack)
 
         ctrl_container = QWidget()
         ctrl_container.setMinimumWidth(240)
@@ -178,33 +177,50 @@ class DitherGuy(QMainWindow):
         )
         tb.addWidget(info_lbl)
 
-    def _on_tab_changed(self, idx: int):
-        self.ctrl_stack.setCurrentIndex(idx)
-        self._update_zoom_lbl()
-        
     def _active(self):
-        return self.image_tab if self.tabs.currentIndex() == 0 else self.video_tab
+        return self.image_tab if self.view_stack.currentIndex() == 0 else self.video_tab
 
     def _active_controls(self):
-        return self.image_controls if self.tabs.currentIndex() == 0 else self.video_controls
+        return self.image_controls if self.view_stack.currentIndex() == 0 else self.video_controls
 
     def _on_params_changed(self):
-        if self.tabs.currentIndex() == 0:
+        if self.view_stack.currentIndex() == 0:
             self.image_tab.schedule(preview=False)
 
     def _on_params_preview(self):
-        if self.tabs.currentIndex() == 0:
+        if self.view_stack.currentIndex() == 0:
             self.image_tab.schedule(preview=True)
 
     def _on_video_params_changed(self):
-        if self.tabs.currentIndex() == 1:
+        if self.view_stack.currentIndex() == 1:
             if self.video_tab.current_frame is not None and not self.video_tab.is_playing:
                 self.video_tab._show(self.video_tab.current_frame)
 
-    def _open(self):  self._active().open_file()
+    def _open(self):
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Media", self._active().last_dir,
+            "Media Files (*.png *.jpg *.jpeg *.webp *.bmp *.mp4 *.avi *.mov *.mkv *.webm);;Images (*.png *.jpg *.jpeg *.webp *.bmp);;Videos (*.mp4 *.avi *.mov *.mkv *.webm);;All (*.*)"
+        )
+        if not path:
+            return
+        
+        ext = path.lower().split('.')[-1]
+        if ext in ('mp4', 'avi', 'mov', 'mkv', 'webm'):
+            self.view_stack.setCurrentIndex(1)
+            self.ctrl_stack.setCurrentIndex(1)
+            self.video_tab.last_dir = str(Path(path).parent)
+            self.video_tab._load_video(path)
+        else:
+            self.view_stack.setCurrentIndex(0)
+            self.ctrl_stack.setCurrentIndex(0)
+            self.image_tab.last_dir = str(Path(path).parent)
+            self.image_tab._load_image(path)
+            
+        self._update_zoom_lbl()
 
     def _save(self):
-        if self.tabs.currentIndex() == 0:
+        if self.view_stack.currentIndex() == 0:
             self.image_tab.save_file()
         else:
             self.video_tab.export_video()
