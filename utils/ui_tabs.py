@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, tempfile
 from typing import Optional
 import itertools
 
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import Qt, Signal, QTimer, QUrl
+from PySide6.QtCore import Qt, Signal, QTimer, QUrl, QThread
 from PySide6.QtGui import QImage, QPixmap, QGuiApplication
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QScrollArea, QCheckBox, QFileDialog, QMessageBox,
-    QProgressBar, QSlider, QStyle, QSplitter,
+    QProgressBar, QSlider, QStyle, QSplitter, QProgressDialog,
 )
 
 from .constants import _MAX_PIXELS, _HISTORY_LIMIT, _DEBOUNCE_MS
@@ -583,6 +583,45 @@ def _fmt_time(seconds: float) -> str:
 # Video tab
 # ---------------------------------------------------------------------------
 
+class ProxyGeneratorWorker(QThread):
+    progress = Signal(int, int)
+    finished_proxy = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, input_path: str, target_width: int, target_height: int):
+        super().__init__()
+        self.input_path = input_path
+        self.target_width = target_width
+        self.target_height = target_height
+
+    def run(self):
+        try:
+            import os
+            cap = cv2.VideoCapture(self.input_path)
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+            
+            proxy_path = os.path.join(tempfile.gettempdir(), f"proxy_{os.path.basename(self.input_path)}.mp4")
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(proxy_path, fourcc, fps, (self.target_width, self.target_height))
+            
+            count = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret: break
+                
+                frame = cv2.resize(frame, (self.target_width, self.target_height), interpolation=cv2.INTER_AREA)
+                writer.write(frame)
+                count += 1
+                if count % 10 == 0 or count == total:
+                    self.progress.emit(count, total)
+                    
+            cap.release()
+            writer.release()
+            self.finished_proxy.emit(proxy_path)
+        except Exception as e:
+            self.error.emit(str(e))
+
 class VideoTab(QWidget):
     status_message = Signal(str)
 
@@ -866,15 +905,47 @@ class VideoTab(QWidget):
         
         max_dim = max(w, h)
         if max_dim > 720:
-            self._preview_scale = 720.0 / max_dim
+            scale = 720.0 / max_dim
+            tw, th = int(w * scale), int(h * scale)
+            
+            self._proxy_dlg = QProgressDialog("Generating proxy video to prevent lag...", "", 0, self._total_frames, self)
+            self._proxy_dlg.setWindowTitle("Compressing Video for Preview")
+            self._proxy_dlg.setCancelButton(None)
+            self._proxy_dlg.setWindowModality(Qt.WindowModal)
+            self._proxy_dlg.setWindowFlags(Qt.Dialog | Qt.CustomizeWindowHint | Qt.WindowTitleHint)
+            self._proxy_dlg.setMinimumDuration(0)
+            self._proxy_dlg.setValue(0)
+            self._proxy_dlg.show()
+            
+            cap.release()
+            self.video_cap = None
+            
+            self._proxy_worker = ProxyGeneratorWorker(path, tw, th)
+            self._proxy_worker.progress.connect(self._proxy_dlg.setValue)
+            self._proxy_worker.error.connect(lambda e: self._on_proxy_done(None, path, duration, name, w, h))
+            self._proxy_worker.finished_proxy.connect(lambda p_path: self._on_proxy_done(p_path, path, duration, name, w, h))
+            self._proxy_worker.start()
+        else:
+            self.hq_warn_lbl.setVisible(False)
+            self._finish_load_video(path, path, duration, name, w, h)
+
+    def _on_proxy_done(self, proxy_path: str, orig_path: str, duration, name, orig_w, orig_h):
+        self._proxy_dlg.close()
+        self._proxy_dlg = None
+        if proxy_path and Path(proxy_path).exists():
             self.hq_warn_lbl.setText(
-                f"⚠️ HQ Video ({w}×{h}): Using proxy preview to prevent lag. Export will be full resolution."
+                f"⚠️ HQ Video ({orig_w}×{orig_h}): Using proxy preview to prevent lag. Export will be full resolution."
             )
             self.hq_warn_lbl.setVisible(True)
+            self._finish_load_video(proxy_path, orig_path, duration, name, orig_w, orig_h)
         else:
-            self._preview_scale = 1.0
             self.hq_warn_lbl.setVisible(False)
-            
+            self._finish_load_video(orig_path, orig_path, duration, name, orig_w, orig_h)
+
+    def _finish_load_video(self, load_path: str, orig_path: str, duration: float, name: str, w: int, h: int) -> None:
+        self.video_cap  = cv2.VideoCapture(load_path)
+        self.video_path = orig_path
+        
         self.info_lbl.setText(
             f"{name}  ·  {w}×{h}  ·  {self._total_frames} fr  ·  {self._fps:.2f} fps  ·  {_fmt_time(duration)}"
         )
@@ -962,9 +1033,6 @@ class VideoTab(QWidget):
         if not ret:
             return
             
-        if getattr(self, '_preview_scale', 1.0) < 1.0:
-            frame = cv2.resize(frame, (0, 0), fx=self._preview_scale, fy=self._preview_scale, interpolation=cv2.INTER_AREA)
-            
         self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         self._show(self.current_frame)
         self._update_position_ui(frame_idx, update_bar)
@@ -1009,9 +1077,6 @@ class VideoTab(QWidget):
                 self._pause()
                 self._seek_to_frame(0)
             return
-            
-        if getattr(self, '_preview_scale', 1.0) < 1.0:
-            frame = cv2.resize(frame, (0, 0), fx=self._preview_scale, fy=self._preview_scale, interpolation=cv2.INTER_AREA)
             
         self.current_frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         self._show(self.current_frame)

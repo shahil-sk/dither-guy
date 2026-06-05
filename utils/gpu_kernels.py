@@ -156,7 +156,7 @@ def gpu_rgb_to_lab(r_device):
     return xp.stack([L, a, b], axis=-1)
 
 
-_PALETTE_NEAREST_BATCH = 262_144  # pixels per chunk -- caps peak VRAM allocation
+_PALETTE_NEAREST_BATCH = 1_048_576  # pixels per chunk -- caps peak VRAM allocation
 
 
 def gpu_palette_nearest(flat, pal_lab: np.ndarray) -> np.ndarray:
