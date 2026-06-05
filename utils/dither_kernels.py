@@ -831,25 +831,28 @@ def apply_dither(
         tiled = tile(ORDERED_MATRICES[method], h, w)
         if use_gpu:
             tiled = to_gpu(tiled.astype(np.float32))
-        a = gpu_ordered_dither(a, tiled, t)
-        if use_gpu:
+            a = gpu_ordered_dither(a, tiled, t)
             a = from_gpu(a)
+        else:
+            a = np.where(a.astype(np.float32) + (tiled.astype(np.float32) - 128.0) * (1.0 - t / 255.0) > t, 255, 0).astype(np.uint8)
     elif method == "Crosshatch":
         xs  = np.arange(w, dtype=np.float32)
         ys  = np.arange(h, dtype=np.float32)
         ch  = (np.sin(xs[None, :] * 0.5) + np.sin(ys[:, None] * 0.5)) * 64. + 128.
         if use_gpu:
             ch = to_gpu(ch)
-        a = gpu_ordered_dither(a, ch, t)
-        if use_gpu:
+            a = gpu_ordered_dither(a, ch, t)
             a = from_gpu(a)
+        else:
+            a = np.where(a.astype(np.float32) + (ch.astype(np.float32) - 128.0) * (1.0 - t / 255.0) > t, 255, 0).astype(np.uint8)
     elif method == "Blue-Noise Mask":
         mask = _get_blue_noise_mask(h, w)
         if use_gpu:
             mask = to_gpu(mask)
-        a = gpu_ordered_dither(a, mask, t)
-        if use_gpu:
+            a = gpu_ordered_dither(a, mask, t)
             a = from_gpu(a)
+        else:
+            a = np.where(a.astype(np.float32) + (mask.astype(np.float32) - 128.0) * (1.0 - t / 255.0) > t, 255, 0).astype(np.uint8)
     elif method in _BW_DISPATCH:
         if use_gpu:
             a = from_gpu(a)
