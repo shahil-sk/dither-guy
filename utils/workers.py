@@ -364,28 +364,49 @@ class GifExportWorker(_VideoExportBase):
             total       = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             duration_ms = max(20, int(1000 / fps))
 
+            use_gpu_batch = GPU_BACKEND == "cuda"
+            pal_rgb = _resolve_palette_rgb(self._pal, self._cpal) if use_gpu_batch else None
+            if pal_rgb is None:
+                use_gpu_batch = False
+
+            BATCH = _GPU_EXPORT_BATCH if use_gpu_batch else max(1, _VIDEO_WORKERS * 2)
+
             frames: list[Image.Image] = []
             count = 0
+            frames_buf: list[Image.Image] = []
 
-            while self._is_running():
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                pil      = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                dithered = apply_dither(
-                    pil, self._ps, self._t, self._rc, self._m,
-                    self._br, self._co, self._bl, self._sh,
-                    self._gr, self._gi,
-                    palette_name=self._pal, custom_palette=self._cpal,
-                    saturation=self._sa, hue_rotate=self._hu,
-                    pre_denoise=self._prd, pre_smooth=self._prs,
-                    post_denoise=self._pod, post_smooth=self._pos,
-                )
-                frames.append(dithered.convert("P", palette=Image.ADAPTIVE, colors=256))
-                count += 1
-                self.progress.emit(count, total)
-                if count % 10 == 0:
-                    self.frame_ready.emit(dithered)
+            with ThreadPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
+                while self._is_running():
+                    frames_buf.clear()
+                    for _ in range(BATCH):
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        frames_buf.append(
+                            Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+                    if not frames_buf:
+                        break
+
+                    if use_gpu_batch:
+                        arr = np.stack([np.array(f) for f in frames_buf])
+                        arr_gpu  = to_gpu(arr)
+                        arr_out  = gpu_palette_batch(arr_gpu, pal_rgb)
+                        dithered = [Image.fromarray(arr_out[i]) for i in range(len(arr_out))]
+                    else:
+                        dithered = [
+                            Image.frombytes(mode, size, data)
+                            for data, mode, size in executor.map(
+                                _process_frame_worker, self._make_args(frames_buf))
+                        ]
+
+                    for dith in dithered:
+                        if not self._is_running():
+                            break
+                        frames.append(dith.convert("P", palette=Image.ADAPTIVE, colors=256))
+                        count += 1
+                        self.progress.emit(count, total)
+                        if count % max(1, BATCH) == 0:
+                            self.frame_ready.emit(dith)
 
             if frames and self._is_running():
                 frames[0].save(
