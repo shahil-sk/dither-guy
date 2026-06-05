@@ -248,7 +248,7 @@ def _palette_ed_vectorised(
     for y in range(h):
         row  = out[y]                      # (W, 3) float32, already modified by prev rows
         if on_device:
-            idxs = gpu_palette_nearest(row, pal_lab)
+            idxs = gpu_palette_nearest(to_gpu(row), pal_lab)
         else:
             pix_lab = _rgb_to_lab_batch(row)   # (W, 3)
             diff    = pix_lab[:, np.newaxis, :] - pal_lab[np.newaxis, :, :]  # (W, K, 3)
@@ -302,9 +302,9 @@ def palette_dither_fast(image: Image.Image, palette: list[tuple], use_gpu: bool 
 
     if use_gpu:
         try:
-            from .gpu_kernels import gpu_palette_batch
+            from .gpu_kernels import gpu_palette_batch, to_gpu
             # Add batch dimension and process
-            result = gpu_palette_batch(noisy[np.newaxis, ...], pal)[0]
+            result = gpu_palette_batch(to_gpu(noisy[np.newaxis, ...]), pal)[0]
             return Image.fromarray(result, mode="RGB")
         except Exception as e:
             import traceback

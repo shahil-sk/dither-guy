@@ -170,11 +170,23 @@ class ControlPanel(QWidget):
         )
         layout.addWidget(pre)
 
+        reset_layout = QHBoxLayout()
+        reset_layout.setContentsMargins(0, 0, 0, 0)
+        reset_layout.setSpacing(4)
+        
         reset_btn = QPushButton("\u21ba  Reset Adjustments")
         reset_btn.clicked.connect(self._reset)
         reset_btn.setMinimumHeight(28)
         reset_btn.setToolTip("Reset image adjustments and filters to defaults")
-        layout.addWidget(reset_btn)
+        reset_layout.addWidget(reset_btn)
+        
+        reset_all_btn = QPushButton("\u21ba  Reset All")
+        reset_all_btn.clicked.connect(self.reset_all)
+        reset_all_btn.setMinimumHeight(28)
+        reset_all_btn.setToolTip("Fully reset all settings to defaults")
+        reset_layout.addWidget(reset_all_btn)
+        
+        layout.addLayout(reset_layout)
         layout.addWidget(hsep())
 
         gg = self._group("Glow")
