@@ -345,6 +345,27 @@ class ControlPanel(QWidget):
         self._refresh_value_labels()
         self.params_changed.emit()
 
+    def reset_all(self) -> None:
+        """Fully reset all sliders, methods, and palettes to their defaults."""
+        self._reset()
+        self.pixel_sl.blockSignals(True)
+        self.pixel_sl.setValue(2)
+        self.pixel_sl.blockSignals(False)
+        
+        self.thresh_sl.blockSignals(True)
+        self.thresh_sl.setValue(128)
+        self.thresh_sl.blockSignals(False)
+
+        self.method_picker.set_method("Bayer 2x2")
+        self.palette_combo.setCurrentText("B&W")
+        self.current_color = (255, 255, 255)
+        self._refresh_swatch()
+        self._custom_palette.clear()
+        self._refresh_palette_swatches()
+        
+        self._refresh_value_labels()
+        self.params_changed.emit()
+
     def randomize(self) -> None:
         """Randomize all dither properties and emit params_changed."""
         ri = random.randint

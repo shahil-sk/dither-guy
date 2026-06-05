@@ -146,6 +146,7 @@ class DitherGuy(QMainWindow):
         tb.addSeparator()
         act("undo",  "Ctrl+Z", lambda: self.image_tab.undo(), "Undo last image operation (Ctrl+Z)")
         tb.addSeparator()
+        act("reset", "Ctrl+D", self._reset_all, "Reset all settings to default (Ctrl+D)")
         act("randomize", "Ctrl+R", self._randomize, "Randomize all properties (Ctrl+R)")
         tb.addSeparator()
 
@@ -225,13 +226,20 @@ class DitherGuy(QMainWindow):
         else:
             self.video_tab.export_video()
 
-    def _batch(self):
-        dlg = BatchDialog(self._active_controls().get_params, self)
-        dlg.exec()
-
     def _randomize(self):
         self._active_controls().randomize()
         self._show_status("randomized")
+
+    def _reset_all(self):
+        if self.view_stack.currentIndex() == 0:
+            self.image_controls.reset_all()
+        else:
+            self.video_controls.reset_all()
+        self._show_status("reset to defaults")
+
+    def _batch(self):
+        dlg = BatchDialog(self._active_controls().get_params, self)
+        dlg.exec()
 
     def _zoom_in(self):  self._active().zoom_in();  self._update_zoom_lbl()
     def _zoom_out(self): self._active().zoom_out(); self._update_zoom_lbl()
