@@ -976,20 +976,18 @@ class VideoTab(QWidget):
 
     def _show(self, img: Image.Image) -> None:
         p = self.get_params()
+        if getattr(self, '_frame_worker', None) and self._frame_worker.isRunning():
+            self._frame_worker.stop()
+            self._frame_worker.wait(200)
+            self._frame_worker.deleteLater()
+
+        from .workers import FrameDitherWorker
+        self._frame_worker = FrameDitherWorker(img, p)
+        self._frame_worker.finished.connect(self._on_frame_dithered)
+        self._frame_worker.start()
+
+    def _on_frame_dithered(self, dith: Image.Image) -> None:
         try:
-            dith = apply_dither(
-                img, p["pixel_size"], p["threshold"], p["color"], p["method"],
-                p["brightness"], p["contrast"], p["blur"], p["sharpen"],
-                p["glow_radius"], p["glow_intensity"],
-                palette_name=p.get("palette_name", "B&W"),
-                custom_palette=p.get("custom_palette"),
-                saturation=p.get("saturation", 1.0),
-                hue_rotate=p.get("hue_rotate", 0),
-                pre_denoise=p.get("pre_denoise", 0),
-                pre_smooth=p.get("pre_smooth", 0),
-                post_denoise=p.get("post_denoise", 0),
-                post_smooth=p.get("post_smooth", 0),
-            )
             self.canvas.set_image(pil_to_pixmap(dith))
             self.canvas.setStyleSheet(f"background:{_P0};")
         except Exception as exc:
@@ -1102,6 +1100,9 @@ class VideoTab(QWidget):
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
+        if getattr(self, '_frame_worker', None) and self._frame_worker.isRunning():
+            self._frame_worker.stop()
+            self._frame_worker.wait(500)
         if self.export_worker and self.export_worker.isRunning():
             self.export_worker.stop()
             self.export_worker.wait(2000)
