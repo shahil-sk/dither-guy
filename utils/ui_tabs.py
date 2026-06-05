@@ -983,7 +983,20 @@ class VideoTab(QWidget):
     def _next_frame(self) -> None:
         if not self.video_cap or not self.video_cap.isOpened():
             return
+            
         frame_idx = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
+
+        # Audio sync: drop frames if lagging, stall if ahead
+        if self.is_playing and self._audio_enabled() and self._player is not None:
+            pos_ms = self._player.position()
+            target_frame = int((pos_ms / 1000.0) * self._fps)
+            diff = target_frame - frame_idx
+            if diff > 2:
+                self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+                frame_idx = target_frame
+            elif diff < -2:
+                return
+
         ret, frame = self.video_cap.read()
         if not ret:
             if self.loop:

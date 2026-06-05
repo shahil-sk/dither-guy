@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QAction
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout,
-    QSplitter, QTabWidget, QToolBar, QLabel,
+    QSplitter, QTabWidget, QToolBar, QLabel, QStackedWidget
 )
 
 from utils.constants import METHODS, VERSION, _VIDEO_WORKERS
@@ -50,12 +50,18 @@ class DitherGuy(QMainWindow):
         self.setStyleSheet(THEME)
         self._load_icon()
 
-        self.controls  = ControlPanel()
-        self.image_tab = ImageTab(self.controls.get_params)
-        self.video_tab = VideoTab(self.controls.get_params)
+        self.image_controls = ControlPanel()
+        self.video_controls = ControlPanel()
+        
+        self.image_tab = ImageTab(self.image_controls.get_params)
+        self.video_tab = VideoTab(self.video_controls.get_params)
 
-        self.controls.params_changed.connect(self._on_params_changed)
-        self.controls.params_changed_preview.connect(self._on_params_preview)
+        self.image_controls.params_changed.connect(self._on_params_changed)
+        self.image_controls.params_changed_preview.connect(self._on_params_preview)
+        
+        self.video_controls.params_changed.connect(self._on_video_params_changed)
+        self.video_controls.params_changed_preview.connect(self._on_video_params_changed)
+
         self.image_tab.status_message.connect(self._show_status)
         self.video_tab.status_message.connect(self._show_status)
 
@@ -86,7 +92,7 @@ class DitherGuy(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.addTab(self.image_tab, "  Image  ")
         self.tabs.addTab(self.video_tab, "  Video  ")
-        self.tabs.currentChanged.connect(lambda _: self._update_zoom_lbl())
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         splitter.addWidget(self.tabs)
 
         ctrl_container = QWidget()
@@ -96,7 +102,12 @@ class DitherGuy(QMainWindow):
         from PySide6.QtWidgets import QVBoxLayout
         cl = QVBoxLayout(ctrl_container)
         cl.setContentsMargins(0, 0, 0, 0)
-        cl.addWidget(self.controls)
+        
+        self.ctrl_stack = QStackedWidget()
+        self.ctrl_stack.addWidget(self.image_controls)
+        self.ctrl_stack.addWidget(self.video_controls)
+        cl.addWidget(self.ctrl_stack)
+        
         splitter.addWidget(ctrl_container)
         splitter.setSizes([860, 280])
         splitter.setCollapsible(1, False)
@@ -167,8 +178,15 @@ class DitherGuy(QMainWindow):
         )
         tb.addWidget(info_lbl)
 
+    def _on_tab_changed(self, idx: int):
+        self.ctrl_stack.setCurrentIndex(idx)
+        self._update_zoom_lbl()
+        
     def _active(self):
         return self.image_tab if self.tabs.currentIndex() == 0 else self.video_tab
+
+    def _active_controls(self):
+        return self.image_controls if self.tabs.currentIndex() == 0 else self.video_controls
 
     def _on_params_changed(self):
         if self.tabs.currentIndex() == 0:
@@ -177,6 +195,11 @@ class DitherGuy(QMainWindow):
     def _on_params_preview(self):
         if self.tabs.currentIndex() == 0:
             self.image_tab.schedule(preview=True)
+
+    def _on_video_params_changed(self):
+        if self.tabs.currentIndex() == 1:
+            if self.video_tab.current_frame is not None and not self.video_tab.is_playing:
+                self.video_tab._show(self.video_tab.current_frame)
 
     def _open(self):  self._active().open_file()
 
@@ -187,11 +210,11 @@ class DitherGuy(QMainWindow):
             self.video_tab.export_video()
 
     def _batch(self):
-        dlg = BatchDialog(self.controls.get_params, self)
+        dlg = BatchDialog(self._active_controls().get_params, self)
         dlg.exec()
 
     def _randomize(self):
-        self.controls.randomize()
+        self._active_controls().randomize()
         self._show_status("randomized")
 
     def _zoom_in(self):  self._active().zoom_in();  self._update_zoom_lbl()
