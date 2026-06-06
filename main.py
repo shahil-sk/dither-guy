@@ -123,6 +123,7 @@ class DitherGuy(QMainWindow):
         file_menu = menubar.addMenu("File")
         view_menu = menubar.addMenu("View")
         edit_menu = menubar.addMenu("Edit")
+        help_menu = menubar.addMenu("Help")
         
         def create_action(label, shortcut, slot, tip=""):
             a = QAction(label, self)
@@ -158,6 +159,9 @@ class DitherGuy(QMainWindow):
         view_menu.addAction(a_zout)
         view_menu.addAction(a_fit)
         view_menu.addAction(a_1to1)
+
+        a_about = create_action("About Dither Guy...", "", self._show_about, "About this application")
+        help_menu.addAction(a_about)
         
 
         # # 2. Top Navbar
@@ -239,6 +243,13 @@ class DitherGuy(QMainWindow):
         if self.view_stack.currentIndex() == 1:
             if self.video_tab.current_frame is not None and not self.video_tab.is_playing:
                 self.video_tab._show(self.video_tab.current_frame)
+
+    def _show_about(self):
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.about(self, "About Dither Guy", 
+                          f"<b>Dither Guy v{VERSION}</b><br><br>"
+                          "A high-performance GPU-accelerated dithering application.<br>"
+                          "Features advanced PyOpenCL/CUDA compute, video export, and palette processing.")
 
     def _open(self):
         from PySide6.QtWidgets import QFileDialog
