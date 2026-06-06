@@ -154,38 +154,37 @@ class DitherGuy(QMainWindow):
         view_menu.addAction(a_fit)
         view_menu.addAction(a_1to1)
 
-        # 2. Left Tool Palette
-        tb = QToolBar("Tools")
+        # 2. Top Navbar
+        tb = QToolBar("Navbar")
         tb.setMovable(False)
-        tb.setOrientation(Qt.Vertical)
+        tb.setOrientation(Qt.Horizontal)
         tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self.addToolBar(Qt.LeftToolBarArea, tb)
+        self.addToolBar(Qt.TopToolBarArea, tb)
 
         brand = QLabel("Dg")
         brand.setAlignment(Qt.AlignCenter)
         brand.setStyleSheet(
             f"font-family:{_SANS_FONT}; color:#31c4f3; font-weight:bold;"
-            f"font-size:18px; padding:6px 0px; margin: 4px 4px 12px 4px; border: 2px solid #31c4f3; border-radius: 4px;"
+            f"font-size:14px; padding:2px 6px; margin: 2px 12px 2px 4px; border: 2px solid #31c4f3; border-radius: 4px;"
             f"background: #1e1e1e;"
         )
         tb.addWidget(brand)
 
-        def tool_btn(icon_text, action):
-            a = QAction(icon_text, self)
+        def nav_btn(icon_text, text, action):
+            a = QAction(f"{icon_text} {text}", self)
             a.setToolTip(action.toolTip() or action.text())
             a.triggered.connect(action.trigger)
             tb.addAction(a)
 
-        tool_btn("📂", a_open)
-        tool_btn("💾", a_save)
-        tool_btn("⚡", a_batch)
+        nav_btn("📂", "Open", a_open)
+        nav_btn("💾", "Save", a_save)
+        nav_btn("⚡", "Batch", a_batch)
         tb.addSeparator()
-        tool_btn("🔍", a_zin)
-        tool_btn("🔎", a_zout)
-        tool_btn("⤢", a_fit)
-        tool_btn("1:1", a_1to1)
+        nav_btn("↩", "Undo", a_undo)
         tb.addSeparator()
-        tool_btn("↩", a_undo)
+        nav_btn("⤢", "Fit", a_fit)
+        nav_btn("🔍", "Zoom In", a_zin)
+        nav_btn("🔎", "Zoom Out", a_zout)
         tb.addSeparator()
 
         self.zoom_lbl = QLabel("fit")
@@ -194,7 +193,7 @@ class DitherGuy(QMainWindow):
         self.zoom_lbl.setStyleSheet(
             f"font-family:{_MONO_FONT}; color:{_G0}; font-size:11px;"
             f"background:{_P2}; border:1px solid {_P5}; border-radius:2px;"
-            "padding:2px 6px; margin:3px;"
+            "padding:2px 8px; margin:2px;"
         )
         self.zoom_lbl.setToolTip("Current zoom level  (Ctrl+= / Ctrl+- / Ctrl+0 / Ctrl+1)")
         tb.addWidget(self.zoom_lbl)

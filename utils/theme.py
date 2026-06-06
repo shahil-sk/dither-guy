@@ -41,23 +41,22 @@ QMainWindow, QWidget {{
     font-size: 11px;
 }}
 
-/* ── ToolBar (Left Tools Panel) ──────────────────────────────────────────── */
+/* ── ToolBar (Top Nav Bar) ───────────────────────────────────────────────── */
 QToolBar {{
     background: {_P1};
     border: none;
-    border-right: 1px solid {_P5};
-    padding: 4px 2px;
+    border-bottom: 1px solid {_P5};
+    padding: 2px 4px;
     spacing: 2px;
 }}
 QToolBar QToolButton {{
     background: transparent;
     border: 1px solid transparent;
     border-radius: 2px;
-    padding: 6px 4px;
+    padding: 4px 8px;
     color: {_FG2};
     font-family: {_SANS_FONT};
-    font-size: 16px;
-    min-width: 32px;
+    font-size: 11px;
     text-align: center;
 }}
 QToolBar QToolButton:hover {{
