@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -279,7 +279,7 @@ class VideoExportWorker(_VideoExportBase):
             last_dithered = None
             frames_buf: list[Image.Image] = []
 
-            with ProcessPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
+            with ThreadPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
                 while self._is_running():
                     frames_buf.clear()
                     for _ in range(BATCH):
@@ -368,7 +368,7 @@ class GifExportWorker(_VideoExportBase):
             count = 0
             frames_buf: list[Image.Image] = []
 
-            with ProcessPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
+            with ThreadPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
                 while self._is_running():
                     frames_buf.clear()
                     for _ in range(BATCH):

@@ -254,6 +254,7 @@ def _palette_ed_vectorised(
     coeffs: list[tuple],
     on_device: bool = False,
 ) -> np.ndarray:
+    on_device = False  # Disable row-by-row GPU transfers (PCI-E bottleneck)
     h, w, _ = arr.shape
     out = arr.copy()
 
@@ -819,11 +820,11 @@ def apply_dither(
         sh  = max(1, rgb.height // effective_pixel)
         rgb = rgb.resize((sw, sh), Image.NEAREST)
 
-        if preview:
+        if preview or use_gpu:
             result = palette_dither_fast(rgb, palette, use_gpu=use_gpu)
         else:
             result = palette_dither(rgb, palette, method=method,
-                                    threshold=threshold, use_gpu=use_gpu)
+                                    threshold=threshold, use_gpu=False)
 
         result = result.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
         data   = np.array(result)
