@@ -474,36 +474,51 @@ class ControlPanel(QWidget):
         self.params_changed.emit()
 
     def set_params(self, p: dict) -> None:
-        self.method_picker.set_method(p.get("method", "Floyd-Steinberg"))
-        self.pixel_sl.setValue(p.get("pixel_size", 4))
-        self.thresh_sl.setValue(p.get("threshold", 128))
-        self.bright_sl.setValue(int(p.get("brightness", 1.0) * 100))
-        self.contr_sl.setValue(int(p.get("contrast", 1.0) * 100))
-        self.sat_sl.setValue(int(p.get("saturation", 1.0) * 100))
-        self.hue_sl.setValue(p.get("hue_rotate", 0))
-        self.blur_sl.setValue(p.get("blur", 0))
-        self.sharp_sl.setValue(p.get("sharpen", 0))
-        self.pre_denoise_sl.setValue(p.get("pre_denoise", 0))
-        self.pre_smooth_sl.setValue(p.get("pre_smooth", 0))
-        self.glow_r_sl.setValue(p.get("glow_radius", 0))
-        self.glow_i_sl.setValue(p.get("glow_intensity", 0))
-        self.post_denoise_sl.setValue(p.get("post_denoise", 0))
-        self.post_smooth_sl.setValue(p.get("post_smooth", 0))
-        self.current_color = tuple(p.get("color", (0, 255, 65)))
-        self._refresh_swatch()
+        widgets = [
+            self.method_picker, self.palette_combo, self.pixel_sl, self.thresh_sl,
+            self.bright_sl, self.contr_sl, self.sat_sl, self.hue_sl, self.blur_sl,
+            self.sharp_sl, self.pre_denoise_sl, self.pre_smooth_sl, self.glow_r_sl,
+            self.glow_i_sl, self.post_denoise_sl, self.post_smooth_sl
+        ]
         
-        if "custom_palette" in p and p["custom_palette"] is not None:
-            self._custom_palette = [tuple(c) for c in p["custom_palette"]]
+        for w in widgets:
+            w.blockSignals(True)
             
-        pal_name = p.get("palette_name", "B&W")
-        idx = self.palette_combo.findText(pal_name)
-        if idx >= 0:
-            self.palette_combo.setCurrentIndex(idx)
-        else:
-            self.palette_combo.setCurrentText(pal_name)
+        try:
+            self.method_picker.set_method(p.get("method", "Floyd-Steinberg"))
+            self.pixel_sl.setValue(p.get("pixel_size", 4))
+            self.thresh_sl.setValue(p.get("threshold", 128))
+            self.bright_sl.setValue(int(p.get("brightness", 1.0) * 100))
+            self.contr_sl.setValue(int(p.get("contrast", 1.0) * 100))
+            self.sat_sl.setValue(int(p.get("saturation", 1.0) * 100))
+            self.hue_sl.setValue(p.get("hue_rotate", 0))
+            self.blur_sl.setValue(p.get("blur", 0))
+            self.sharp_sl.setValue(p.get("sharpen", 0))
+            self.pre_denoise_sl.setValue(p.get("pre_denoise", 0))
+            self.pre_smooth_sl.setValue(p.get("pre_smooth", 0))
+            self.glow_r_sl.setValue(p.get("glow_radius", 0))
+            self.glow_i_sl.setValue(p.get("glow_intensity", 0))
+            self.post_denoise_sl.setValue(p.get("post_denoise", 0))
+            self.post_smooth_sl.setValue(p.get("post_smooth", 0))
+            self.current_color = tuple(p.get("color", (0, 255, 65)))
+            self._refresh_swatch()
             
-        self._refresh_palette_swatches()
-        self._refresh_value_labels()
+            if "custom_palette" in p and p["custom_palette"] is not None:
+                self._custom_palette = [tuple(c) for c in p["custom_palette"]]
+                
+            pal_name = p.get("palette_name", "B&W")
+            idx = self.palette_combo.findText(pal_name)
+            if idx >= 0:
+                self.palette_combo.setCurrentIndex(idx)
+            else:
+                self.palette_combo.setCurrentText(pal_name)
+                
+            self._refresh_palette_swatches()
+            self._refresh_value_labels()
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+                
         self.params_changed.emit()
 
     def get_params(self) -> dict:
