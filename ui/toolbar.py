@@ -14,6 +14,7 @@ class WindowToolbar:
         file_menu = menubar.addMenu("File")
         view_menu = menubar.addMenu("View")
         edit_menu = menubar.addMenu("Edit")
+        self.presets_menu = menubar.addMenu("Presets")
         help_menu = menubar.addMenu("Help")
         
         def create_action(label: str, shortcut: str, slot, tip: str = "") -> QAction:
@@ -57,6 +58,8 @@ class WindowToolbar:
         a_about = create_action("About Dither Guy...", "", self._show_about, "About this application")
         help_menu.addAction(a_about)
 
+        self._build_presets_menu()
+
         from PySide6.QtWidgets import QLabel
         from PySide6.QtCore import Qt
         from utils.theme import _MONO_FONT, _G0
@@ -67,3 +70,23 @@ class WindowToolbar:
         self.zoom_lbl.setStyleSheet(f"font-family:{_MONO_FONT}; color:{_G0}; font-size:11px; padding:0 8px;")
         self.zoom_lbl.setToolTip("Current zoom level")
         self.statusBar().addPermanentWidget(self.zoom_lbl)
+
+    def _build_presets_menu(self: 'DitherGuy') -> None:
+        self.presets_menu.clear()
+        
+        a_save = QAction("Save Preset...", self)
+        a_save.triggered.connect(self._save_preset)
+        self.presets_menu.addAction(a_save)
+        
+        a_del = QAction("Manage Presets...", self)
+        a_del.triggered.connect(self._manage_presets)
+        self.presets_menu.addAction(a_del)
+        
+        from utils.presets import list_presets
+        presets = list_presets()
+        if presets:
+            self.presets_menu.addSeparator()
+            for p in presets:
+                a = QAction(p, self)
+                a.triggered.connect(lambda checked=False, name=p: self._load_preset(name))
+                self.presets_menu.addAction(a)

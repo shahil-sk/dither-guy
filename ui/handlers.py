@@ -85,6 +85,42 @@ class WindowHandlers:
         msg.setText(html)
         msg.exec()
 
+    def _save_preset(self: 'DitherGuy') -> None:
+        from PySide6.QtWidgets import QInputDialog
+        from utils.presets import save_preset
+        
+        name, ok = QInputDialog.getText(self, "Save Preset", "Enter a name for this preset:")
+        if ok and name.strip():
+            save_preset(name.strip(), self._active_controls().get_params())
+            self._show_status(f"Saved preset: {name.strip()}")
+            self._build_presets_menu()
+
+    def _load_preset(self: 'DitherGuy', name: str) -> None:
+        from utils.presets import load_preset
+        p = load_preset(name)
+        if p is not None:
+            self._active_controls().set_params(p)
+            self._show_status(f"Loaded preset: {name}")
+        else:
+            QMessageBox.warning(self, "Preset Error", f"Could not load '{name}'.")
+
+    def _manage_presets(self: 'DitherGuy') -> None:
+        from PySide6.QtWidgets import QInputDialog
+        from utils.presets import list_presets, delete_preset
+        
+        presets = list_presets()
+        if not presets:
+            QMessageBox.information(self, "Manage Presets", "No presets found.")
+            return
+            
+        name, ok = QInputDialog.getItem(self, "Manage Presets", "Select a preset to delete:", presets, 0, False)
+        if ok and name:
+            if delete_preset(name):
+                self._show_status(f"Deleted preset: {name}")
+                self._build_presets_menu()
+            else:
+                QMessageBox.warning(self, "Preset Error", f"Could not delete '{name}'.")
+
     def _open(self: 'DitherGuy') -> None:
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Media", self._active().last_dir,

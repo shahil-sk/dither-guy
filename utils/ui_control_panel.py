@@ -255,41 +255,7 @@ class ControlPanel(QWidget):
         palg.layout().addLayout(custom_row)
         layout.addWidget(palg)
 
-        pg = self._group("Presets")
-        row_p = QHBoxLayout()
-        self.preset_name = QLineEdit()
-        self.preset_name.setPlaceholderText("preset name...")
-        self.preset_name.setMinimumHeight(28)
-        self.preset_name.setToolTip("Name for saving current settings as a preset")
-        save_p = QPushButton("Save")
-        save_p.setMinimumHeight(28)
-        save_p.setToolTip("Save current settings as a named preset")
-        save_p.clicked.connect(self._save_preset)
-        row_p.addWidget(self.preset_name)
-        row_p.addWidget(save_p)
-        pg.layout().addLayout(row_p)
-
-        self.preset_combo = QComboBox()
-        self.preset_combo.setMinimumHeight(28)
-        self.preset_combo.setToolTip("Select a saved preset")
-        self._refresh_preset_combo()
-
-        row_p2 = QHBoxLayout()
-        load_p = QPushButton("Load")
-        load_p.setMinimumHeight(28)
-        load_p.setToolTip("Load selected preset")
-        del_p  = QPushButton("Del")
-        del_p.setMinimumHeight(28)
-        del_p.setObjectName("danger")
-        del_p.setToolTip("Delete selected preset")
-        load_p.clicked.connect(self._load_preset)
-        del_p.clicked.connect(self._delete_preset)
-        row_p2.addWidget(self.preset_combo)
-        row_p2.addWidget(load_p)
-        row_p2.addWidget(del_p)
-        pg.layout().addLayout(row_p2)
-        layout.addWidget(pg)
-
+        # Presets UI moved to top menu bar
         layout.addStretch()
 
         if _NUMBA:
@@ -507,33 +473,7 @@ class ControlPanel(QWidget):
         self._refresh_palette_swatches()
         self.params_changed.emit()
 
-    def _refresh_preset_combo(self) -> None:
-        self.preset_combo.blockSignals(True)
-        self.preset_combo.clear()
-        for name in list_presets():
-            self.preset_combo.addItem(name)
-        self.preset_combo.blockSignals(False)
-
-    def _save_preset(self) -> None:
-        name = self.preset_name.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Preset", "Enter a preset name.")
-            return
-        save_preset(name, self.get_params())
-        self._refresh_preset_combo()
-        idx = self.preset_combo.findText(name)
-        if idx >= 0:
-            self.preset_combo.setCurrentIndex(idx)
-        self.preset_name.clear()
-
-    def _load_preset(self) -> None:
-        name = self.preset_combo.currentText()
-        if not name:
-            return
-        p = load_preset(name)
-        if p is None:
-            QMessageBox.warning(self, "Preset", f"Could not load '{name}'.")
-            return
+    def set_params(self, p: dict) -> None:
         self.method_picker.set_method(p.get("method", "Floyd-Steinberg"))
         self.pixel_sl.setValue(p.get("pixel_size", 4))
         self.thresh_sl.setValue(p.get("threshold", 128))
@@ -551,16 +491,20 @@ class ControlPanel(QWidget):
         self.post_smooth_sl.setValue(p.get("post_smooth", 0))
         self.current_color = tuple(p.get("color", (0, 255, 65)))
         self._refresh_swatch()
+        
+        if "custom_palette" in p and p["custom_palette"] is not None:
+            self._custom_palette = [tuple(c) for c in p["custom_palette"]]
+            
         pal_name = p.get("palette_name", "B&W")
         idx = self.palette_combo.findText(pal_name)
         if idx >= 0:
             self.palette_combo.setCurrentIndex(idx)
+        else:
+            self.palette_combo.setCurrentText(pal_name)
+            
+        self._refresh_palette_swatches()
+        self._refresh_value_labels()
         self.params_changed.emit()
-
-    def _delete_preset(self) -> None:
-        name = self.preset_combo.currentText()
-        if name and delete_preset(name):
-            self._refresh_preset_combo()
 
     def get_params(self) -> dict:
         pal_name = self.palette_combo.currentText()
