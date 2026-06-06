@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -13,7 +12,7 @@ from PySide6.QtCore import Signal, QThread, QMutex
 
 from .dither_kernels import apply_dither
 from .constants import _VIDEO_WORKERS
-from .gpu_kernels import GPU_BACKEND, to_gpu, from_gpu, gpu_palette_batch
+from .gpu_kernels import GPU_BACKEND, to_gpu, gpu_palette_batch
 from .palettes import PALETTES
 
 try:
@@ -161,7 +160,7 @@ class FrameDitherWorker(QThread):
                 self.finished.emit(result)
             else:
                 self.finished.emit(None)
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
 

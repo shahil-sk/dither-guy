@@ -438,10 +438,11 @@ class ImageTab(QWidget):
     def crop(self) -> None:
         if not self._require_image("crop"):
             return
+        assert self.original_img is not None
         from .ui_dialogs import CropDialog
         from PySide6.QtWidgets import QDialog
         dlg = CropDialog(self.original_img.width, self.original_img.height, self)
-        if dlg.exec() != QDialog.Accepted:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         v  = dlg.values()
         l, t, r, b = v["left"], v["top"], v["right"], v["bottom"]
@@ -577,6 +578,9 @@ class VideoTab(QWidget):
         self._fps          = 25.0
         self._total_frames = 0
         self._scrubbing    = False
+        self._frame_worker: Optional[FrameDitherWorker] = None
+        self._proxy_worker: Optional[ProxyGeneratorWorker] = None
+        self._proxy_dlg: Optional[QProgressDialog] = None
         self._play_timer   = QTimer()
         self._play_timer.timeout.connect(self._next_frame)
 
@@ -889,9 +893,23 @@ class VideoTab(QWidget):
             self.hq_warn_lbl.setVisible(False)
             self._finish_load_video(path, path, duration, name, w, h)
 
-    def _on_proxy_done(self, proxy_path: str, orig_path: str, duration, name, orig_w, orig_h):
-        self._proxy_dlg.close()
-        self._proxy_dlg = None
+    def _on_proxy_done(self, proxy_path: Optional[str], orig_path: str, duration, name, orig_w, orig_h):
+        def cleanup(self) -> None:
+            self.is_playing = False
+            if self._play_timer.isActive():
+                self._play_timer.stop()
+            if self.worker is not None and self.worker.isRunning():
+                self.worker.stop()
+                self.worker.wait()
+            for w in self._orphaned_workers:
+                if w.isRunning():
+                    w.stop()
+                    w.wait()
+                w.deleteLater()
+            self._orphaned_workers.clear()
+        if hasattr(self, "_proxy_dlg") and self._proxy_dlg is not None:
+            self._proxy_dlg.close()
+            self._proxy_dlg = None
         if proxy_path and Path(proxy_path).exists():
             self.hq_warn_lbl.setText(
                 f"⚠️({orig_w}×{orig_h}) Expect lag when using color_palette/Large Video  . Export will be full resolution."
@@ -1173,7 +1191,7 @@ class VideoTab(QWidget):
             self.export_video()
 
     def _cancel_export(self) -> None:
-        if self.export_worker and self.export_worker.isRunning():
+        if self.export_worker is not None and self.export_worker.isRunning():
             self.export_worker.stop()
             self.export_worker.wait()
             self.export_worker = None
@@ -1229,12 +1247,12 @@ class VideoTab(QWidget):
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
-        if getattr(self, '_frame_worker', None) and self._frame_worker.isRunning():
+        if self._frame_worker is not None and self._frame_worker.isRunning():
             self._frame_worker.stop()
             self._frame_worker.wait(500)
-        if getattr(self, '_proxy_worker', None) and self._proxy_worker.isRunning():
+        if self._proxy_worker is not None and self._proxy_worker.isRunning():
             self._proxy_worker.requestInterruption()
             self._proxy_worker.wait(500)
-        if self.export_worker and self.export_worker.isRunning():
+        if self.export_worker is not None and self.export_worker.isRunning():
             self.export_worker.stop()
             self.export_worker.wait(2000)
