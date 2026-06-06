@@ -39,9 +39,9 @@ class WindowHandlers:
             f"<h2 style='color:#31c4f3; margin-bottom: 4px;'>Dither Guy v{VERSION}</h2>"
             "<p>A high-performance GPU-accelerated dithering application.</p>"
             "<hr>"
-            "<b>Maintainer:</b> Shahil Ahmed (sk) (<a href='https://github.com/shahil-sk'>@shahil-sk</a>)<br>"
-            "<b>Author:</b> Manoel Rodrigues (<a href='https://github.com/manoelpiovesan'>@manoelpiovesan</a>)<br>"
-            "<b>Contributor:</b> mohammed moussaoui (<a href='https://github.com/momed081'>@momed081</a>)<br><br>"
+            "<b>Author:</b> <a href='https://github.com/manoelpiovesan'>@manoelpiovesan</a><br>"
+            "<b>Maintainer:</b> <a href='https://github.com/shahil-sk'>@shahil-sk</a><br>"
+            "<b>Contributor:</b> <a href='https://github.com/momed081'>@momed081</a><br><br>"
             "<b>GitHub:</b> <a href='https://github.com/shahil-sk/dither-guy'>github.com/shahil-sk/dither-guy</a><br>"
             "<b>Report Issues:</b> <a href='https://github.com/shahil-sk/dither-guy/issues'>Issue Tracker</a><br><br>"
             "<b>System & Core:</b><br>"
@@ -52,6 +52,7 @@ class WindowHandlers:
         )
         msg = QMessageBox(self)
         msg.setWindowTitle("About Dither Guy")
+        msg.setIconPixmap(self.windowIcon().pixmap(64, 64))
         msg.setTextFormat(Qt.RichText)
         msg.setText(about_text)
         msg.exec()
@@ -79,6 +80,7 @@ class WindowHandlers:
         
         msg = QMessageBox(self)
         msg.setWindowTitle("Keyboard Shortcuts")
+        msg.setIconPixmap(self.windowIcon().pixmap(64, 64))
         msg.setTextFormat(Qt.RichText)
         msg.setText(html)
         msg.exec()
