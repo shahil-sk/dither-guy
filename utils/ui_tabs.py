@@ -920,6 +920,8 @@ class VideoTab(QWidget):
     def _finish_load_video(self, load_path: str, orig_path: str, duration: float, name: str, w: int, h: int) -> None:
         self.video_cap  = cv2.VideoCapture(load_path)
         self.video_path = orig_path
+        self.orig_w     = w
+        self.orig_h     = h
         
         self.info_lbl.setText(
             f"{name}  ·  {w}×{h}  ·  {self._total_frames} fr  ·  {self._fps:.2f} fps  ·  {_fmt_time(duration)}"
@@ -1173,11 +1175,26 @@ class VideoTab(QWidget):
         if self.video_cap:
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         p = self.get_params()
+        
+        # Scale spatial parameters up if the UI was previewing on a low-res proxy
+        proxy_w = self.video_cap.get(cv2.CAP_PROP_FRAME_WIDTH) if self.video_cap else getattr(self, 'orig_w', 1.0)
+        scale = getattr(self, 'orig_w', proxy_w) / max(1.0, float(proxy_w))
+        
+        if scale > 1.05:
+            p["pixel_size"] = max(1, int(p["pixel_size"] * scale))
+            p["blur"] = p["blur"] * scale
+            p["sharpen"] = p["sharpen"] * scale
+            p["glow_radius"] = int(p.get("glow_radius", 0) * scale)
+            if p.get("pre_smooth", 0) > 0:
+                p["pre_smooth"] = p["pre_smooth"] * scale
+            if p.get("post_smooth", 0) > 0:
+                p["post_smooth"] = p["post_smooth"] * scale
+
         self.export_worker = VideoExportWorker(
             self.video_path, path,
             p["pixel_size"], p["threshold"], p["color"], p["method"],
             p["brightness"], p["contrast"], p["blur"], p["sharpen"],
-            p["glow_radius"], p["glow_intensity"],
+            p.get("glow_radius", 0), p.get("glow_intensity", 0),
             palette_name=p.get("palette_name", "B&W"),
             custom_palette=p.get("custom_palette"),
             saturation=p.get("saturation", 1.0),
