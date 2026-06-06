@@ -71,6 +71,11 @@ class DitherGuy(QMainWindow):
     def _show_status(self, msg: str):
         self.statusBar().showMessage(f"  {msg}")
 
+    def closeEvent(self, event):
+        self.image_tab.cleanup()
+        self.video_tab.cleanup()
+        event.accept()
+
     def _load_icon(self):
         for name in ("app_icon.png", "app_icon.ico"):
             p = Path(name)

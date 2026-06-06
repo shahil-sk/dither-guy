@@ -86,7 +86,8 @@ def _apply_hue_rotate(img: Image.Image, degrees: int) -> Image.Image:
     h = (h + degrees) % 360.0
 
     # Saturation + Value
-    s = np.where(cmax == 0, 0.0, delta / cmax)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        s = np.where(cmax == 0, 0.0, delta / cmax)
     v = cmax
 
     # HSV -> RGB

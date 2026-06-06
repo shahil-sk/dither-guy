@@ -254,6 +254,9 @@ class ImageTab(QWidget):
 
     # ── File I/O ──────────────────────────────────────────────────────
 
+    def cleanup(self) -> None:
+        self._stop_worker()
+
     def _load(self, path: str) -> None:
         try:
             img = Image.open(path)
@@ -1232,7 +1235,7 @@ class VideoTab(QWidget):
     def zoom_level(self) -> float:
         return self.canvas.zoom_level
 
-    def closeEvent(self, event) -> None:
+    def cleanup(self) -> None:
         self._play_timer.stop()
         if self._player is not None:
             self._player.stop()
@@ -1242,7 +1245,9 @@ class VideoTab(QWidget):
         if getattr(self, '_frame_worker', None) and self._frame_worker.isRunning():
             self._frame_worker.stop()
             self._frame_worker.wait(500)
+        if getattr(self, '_proxy_worker', None) and self._proxy_worker.isRunning():
+            self._proxy_worker.requestInterruption()
+            self._proxy_worker.wait(500)
         if self.export_worker and self.export_worker.isRunning():
             self.export_worker.stop()
             self.export_worker.wait(2000)
-        super().closeEvent(event)
