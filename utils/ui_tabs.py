@@ -921,7 +921,7 @@ class VideoTab(QWidget):
         self._proxy_dlg = None
         if proxy_path and Path(proxy_path).exists():
             self.hq_warn_lbl.setText(
-                f"⚠️ HQ Video ({orig_w}×{orig_h}): Expect lag when using color_palette/Large Video  . Export will be full resolution."
+                f"⚠️({orig_w}×{orig_h}) Expect lag when using color_palette/Large Video  . Export will be full resolution."
             )
             self.hq_warn_lbl.setVisible(True)
             self._finish_load_video(proxy_path, orig_path, duration, name, orig_w, orig_h)
