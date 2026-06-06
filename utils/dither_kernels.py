@@ -196,7 +196,7 @@ def _get_pal_lab(pal: np.ndarray) -> np.ndarray:
     return _PAL_LAB_CACHE[key]
 
 
-USE_GPU_THRESHOLD = 1_000_000
+USE_GPU_THRESHOLD = 100_000
 
 
 def _nearest_palette_indices(pixels, pal: np.ndarray,
@@ -205,14 +205,18 @@ def _nearest_palette_indices(pixels, pal: np.ndarray,
     if on_device:
         return gpu_palette_nearest(pixels, pal_lab)
     pix_lab = _rgb_to_lab_batch(np.asarray(pixels))
-    diff    = pix_lab[:, np.newaxis, :] - pal_lab[np.newaxis, :, :]
-    dists   = np.einsum('nkc,nkc->nk', diff, diff)
+    pix_sq = np.sum(pix_lab**2, axis=-1, keepdims=True)
+    pal_sq = np.sum(pal_lab**2, axis=-1)
+    dot    = pix_lab @ pal_lab.T
+    dists  = pix_sq + pal_sq - 2 * dot
     return np.argmin(dists, axis=1)
 
 
 def _nearest_palette_indices_rgb(pixels: np.ndarray, pal: np.ndarray) -> np.ndarray:
-    diff  = pixels[:, np.newaxis, :] - pal[np.newaxis, :, :]
-    dists = np.einsum('nkc,nkc->nk', diff, diff)
+    pix_sq = np.sum(pixels**2, axis=-1, keepdims=True)
+    pal_sq = np.sum(pal**2, axis=-1)
+    dot    = pixels @ pal.T
+    dists  = pix_sq + pal_sq - 2 * dot
     return np.argmin(dists, axis=1)
 
 
@@ -264,8 +268,10 @@ def _palette_ed_vectorised(
             idxs = gpu_palette_nearest(to_gpu(row), pal_lab)
         else:
             pix_lab = _rgb_to_lab_batch(row)   # (W, 3)
-            diff    = pix_lab[:, np.newaxis, :] - pal_lab[np.newaxis, :, :]  # (W, K, 3)
-            dists   = np.einsum('nkc,nkc->nk', diff, diff)                   # (W, K)
+            pix_sq  = np.sum(pix_lab**2, axis=-1, keepdims=True)
+            pal_sq  = np.sum(pal_lab**2, axis=-1)
+            dot     = pix_lab @ pal_lab.T
+            dists   = pix_sq + pal_sq - 2 * dot
             idxs    = np.argmin(dists, axis=1)                               # (W,)
         snapped = pal[idxs]                # (W, 3)
         err     = row - snapped            # (W, 3)

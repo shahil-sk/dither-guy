@@ -169,14 +169,13 @@ class FrameDitherWorker(QThread):
 
 
 def _process_frame_worker(args):
-    frame_bytes, mode, size, ps, t, rc, m, br, co, bl, sh, gr, gi, pal, cpal, sa, hu, prd, prs, pod, pos = args
-    img = Image.frombytes(mode, size, frame_bytes)
+    img, ps, t, rc, m, br, co, bl, sh, gr, gi, pal, cpal, sa, hu, prd, prs, pod, pos = args
     out = apply_dither(img, ps, t, rc, m, br, co, bl, sh, gr, gi,
                        palette_name=pal, custom_palette=cpal,
                        saturation=sa, hue_rotate=hu,
                        pre_denoise=prd, pre_smooth=prs,
                        post_denoise=pod, post_smooth=pos)
-    return out.tobytes(), out.mode, out.size
+    return out
 
 
 def _resolve_palette_rgb(palette_name: str, custom_palette) -> np.ndarray | None:
@@ -231,7 +230,7 @@ class _VideoExportBase(QThread):
         prd, prs       = self._prd, self._prs
         pod, pos       = self._pod, self._pos
         return [
-            (f.tobytes(), f.mode, f.size, ps, t, rc, m, br, co, bl, sh, gr, gi,
+            (f, ps, t, rc, m, br, co, bl, sh, gr, gi,
              pal, cpal, sa, hu, prd, prs, pod, pos)
             for f in frames
         ]
@@ -291,11 +290,8 @@ class VideoExportWorker(_VideoExportBase):
                     if not frames_buf:
                         break
 
-                    dithered = [
-                        Image.frombytes(mode, size, data)
-                        for data, mode, size in executor.map(
-                            _process_frame_worker, self._make_args(frames_buf))
-                    ]
+                    dithered = list(executor.map(
+                        _process_frame_worker, self._make_args(frames_buf)))
 
                     for dith in dithered:
                         if not self._is_running():
@@ -380,11 +376,8 @@ class GifExportWorker(_VideoExportBase):
                     if not frames_buf:
                         break
 
-                    dithered = [
-                        Image.frombytes(mode, size, data)
-                        for data, mode, size in executor.map(
-                            _process_frame_worker, self._make_args(frames_buf))
-                    ]
+                    dithered = list(executor.map(
+                        _process_frame_worker, self._make_args(frames_buf)))
 
                     for dith in dithered:
                         if not self._is_running():

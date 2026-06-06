@@ -19,6 +19,11 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.mypy_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
 
 # PyInstaller
 *.manifest

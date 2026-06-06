@@ -36,7 +36,8 @@ class WindowHandlers:
 
     def _show_about(self: 'DitherGuy') -> None:
         about_text = (
-            f"<h2 style='color:#31c4f3; margin-bottom: 4px;'>Dither Guy v{VERSION}</h2>"
+            f"<h2 style='color:#31c4f3; margin-bottom: 4px;'>Dither Guy</h2><p>v{VERSION}</p>"
+            "<span style='font-size:14px;'>"
             "<p>A high-performance GPU-accelerated dithering application.</p>"
             "<hr>"
             "<b>Author:</b> <a href='https://github.com/manoelpiovesan'>@manoelpiovesan</a><br>"
@@ -48,6 +49,7 @@ class WindowHandlers:
             f"&#8226; <i>Qt Version:</i> {qVersion()}<br>"
             f"&#8226; <i>Compute Backend:</i> {GPU_BACKEND.upper()}<br>"
             f"&#8226; <i>Algorithms:</i> {len(METHODS)}<br><br>"
+            "</span>"
             "<span style='color: gray; font-size: 10px;'>Powered by PySide6, PyOpenCL/CUDA, and FFmpeg.</span>"
         )
         msg = QMessageBox(self)
@@ -75,7 +77,7 @@ class WindowHandlers:
         html = "<h3 style='color:#31c4f3; margin-bottom: 8px;'>Keyboard Shortcuts</h3>"
         html += "<table style='width: 100%; font-size: 11px;' cellspacing='4'>"
         for action, key in shortcuts:
-            html += f"<tr><td>{action}</td><td style='color:#a8a8a8; text-align:right;'><b>{key}</b></td></tr>"
+            html += f"<tr><td style='font-size: 14px;'>{action}</td><td style='color:#a8a8a8; text-align:right;font-size: 14px;'><b>{key}</b></td></tr>"
         html += "</table>"
         
         msg = QMessageBox(self)
