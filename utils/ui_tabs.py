@@ -184,7 +184,7 @@ class ImageTab(QWidget):
         wid = next(_worker_id_counter)
         self._worker_id = wid
         self.worker = self._build_worker(preview=True)
-        self.worker.finished.connect(lambda pl, _id=wid: self._on_done(pl, _id))
+        self.worker.result_ready.connect(lambda pl, _id=wid: self._on_done(pl, _id))
         self.worker.error.connect(lambda _: None)
         self.worker.start()
 
@@ -198,7 +198,7 @@ class ImageTab(QWidget):
         wid = next(_worker_id_counter)
         self._worker_id = wid
         self.worker = self._build_worker(preview=False)
-        self.worker.finished.connect(lambda pl, _id=wid: self._on_done(pl, _id))
+        self.worker.result_ready.connect(lambda pl, _id=wid: self._on_done(pl, _id))
         self.worker.error.connect(self._on_error)
         self.worker.start()
 
@@ -1089,7 +1089,7 @@ class VideoTab(QWidget):
 
         from .workers import FrameDitherWorker
         self._frame_worker = FrameDitherWorker(img, p)
-        self._frame_worker.finished.connect(self._on_frame_dithered)
+        self._frame_worker.result_ready.connect(self._on_frame_dithered)
         self._frame_worker.start()
 
     def _on_frame_dithered(self, dith: Image.Image) -> None:

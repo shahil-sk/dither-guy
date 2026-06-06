@@ -310,12 +310,14 @@ def palette_dither(image: Image.Image, palette: list[tuple],
     return Image.fromarray(result, mode="RGB")
 
 
-def palette_dither_fast(image: Image.Image, palette: list[tuple], use_gpu: bool = False) -> Image.Image:
+def palette_dither_ordered(image: Image.Image, palette: list[tuple], method: str, use_gpu: bool = False) -> Image.Image:
     arr  = np.array(image.convert("RGB"), dtype=np.float32)
     pal  = np.asarray(palette, dtype=np.float32)
     h, w = arr.shape[:2]
 
-    bayer = tile(_BAYER_4x4, h, w)
+    from .matrices import ORDERED_MATRICES, _BAYER_4x4
+    mat = ORDERED_MATRICES.get(method, _BAYER_4x4)
+    bayer = tile(mat, h, w)
     noise = (bayer - 128.0) * 0.3
     noisy = np.clip(arr + noise[:, :, np.newaxis], 0, 255)
 
@@ -826,11 +828,14 @@ def apply_dither(
         sh  = max(1, rgb.height // effective_pixel)
         rgb = rgb.resize((sw, sh), Image.NEAREST)
 
-        if preview or use_gpu:
-            result = palette_dither_fast(rgb, palette, use_gpu=use_gpu)
+        from .constants import METHOD_GROUPS
+        is_ordered = method in METHOD_GROUPS.get("Ordered", [])
+        
+        if is_ordered:
+            result = palette_dither_ordered(rgb, palette, method=method, use_gpu=use_gpu)
         else:
             result = palette_dither(rgb, palette, method=method,
-                                    threshold=threshold, use_gpu=False)
+                                    threshold=threshold, use_gpu=use_gpu)
 
         result = result.resize((sw * effective_pixel, sh * effective_pixel), Image.NEAREST)
         data   = np.array(result)

@@ -64,7 +64,7 @@ def _ffmpeg_mux_audio(video_only_path: str, source_video_path: str, output_path:
 
 
 class DitherWorker(QThread):
-    finished = Signal(object)
+    result_ready = Signal(object)
     error    = Signal(str)
 
     def __init__(self, img, pixel_size, threshold, replace_color, method,
@@ -112,9 +112,9 @@ class DitherWorker(QThread):
             ok = not self._stop
             self._mutex.unlock()
             if ok:
-                self.finished.emit((result, elapsed, self._prev))
+                self.result_ready.emit((result, elapsed, self._prev))
             else:
-                self.finished.emit(None)
+                self.result_ready.emit(None)
         except MemoryError:
             self.error.emit("Out of memory — try smaller image or larger pixel size.")
         except Exception as exc:
@@ -125,7 +125,7 @@ class DitherWorker(QThread):
 
 
 class FrameDitherWorker(QThread):
-    finished = Signal(object)
+    result_ready = Signal(object)
 
     def __init__(self, img: Image.Image, params: dict):
         super().__init__()
@@ -157,9 +157,9 @@ class FrameDitherWorker(QThread):
             ok = not self._stop
             self._mutex.unlock()
             if ok:
-                self.finished.emit(result)
+                self.result_ready.emit(result)
             else:
-                self.finished.emit(None)
+                self.result_ready.emit(None)
         except Exception:
             import traceback
             traceback.print_exc()
