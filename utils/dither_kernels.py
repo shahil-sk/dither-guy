@@ -133,11 +133,22 @@ def _apply_smooth(img: Image.Image, strength: int) -> Image.Image:
 def apply_glow(img: Image.Image, radius: float, intensity: float) -> Image.Image:
     if radius <= 0 or intensity <= 0:
         return img
-    blurred  = img.filter(ImageFilter.GaussianBlur(radius=radius))
-    base     = np.asarray(img,     dtype=np.float32)
-    glow_lyr = np.asarray(blurred, dtype=np.float32) * (intensity / 100.0)
-    out = np.float32(255.0) - (np.float32(255.0) - base) * (np.float32(255.0) - glow_lyr) * np.float32(1.0 / 255.0)
-    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=radius))
+    
+    # In-place screen blend to prevent OOM on 4K: A + B - (A * B) / 255
+    base = np.asarray(img, dtype=np.float32)
+    glow = np.asarray(blurred, dtype=np.float32)
+    glow *= (intensity / 100.0)
+    
+    out = np.copy(base)
+    out += glow
+    
+    temp = base * glow
+    temp *= (1.0 / 255.0)
+    
+    out -= temp
+    np.clip(out, 0, 255, out=out)
+    return Image.fromarray(out.astype(np.uint8))
 
 # ---------------------------------------------------------------------------
 # Palette helpers
