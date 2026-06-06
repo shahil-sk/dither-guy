@@ -23,6 +23,22 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+class ClickableSwatch(QLabel):
+    clicked = Signal()
+    rightClicked = Signal()
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self.clicked.emit()
+        elif ev.button() == Qt.RightButton:
+            self.rightClicked.emit()
+        super().mousePressEvent(ev)
+
+
+# ---------------------------------------------------------------------------
 # Method picker
 # ---------------------------------------------------------------------------
 
@@ -445,12 +461,21 @@ class ControlPanel(QWidget):
         colors = self._custom_palette if name == "Custom" else PALETTES.get(name, [])
         cols   = 8
         for i, (r, g, b) in enumerate(colors):
-            sq = QLabel()
+            sq = ClickableSwatch()
             sq.setFixedSize(16, 16)
-            sq.setToolTip(f"#{r:02X}{g:02X}{b:02X}")
+            tooltip = f"#{r:02X}{g:02X}{b:02X}"
+            if name == "Custom":
+                tooltip += "\nLeft-click to edit\nRight-click to remove"
+                sq.setCursor(Qt.PointingHandCursor)
+            sq.setToolTip(tooltip)
             sq.setStyleSheet(
                 f"background:rgb({r},{g},{b}); border:1px solid {_P6}; border-radius:2px;"
             )
+            
+            if name == "Custom":
+                sq.rightClicked.connect(lambda idx=i: self._remove_custom_color(idx))
+                sq.clicked.connect(lambda idx=i: self._edit_custom_color(idx))
+                
             self.pal_swatch_layout.addWidget(sq, i // cols, i % cols)
 
     def _add_custom_color(self) -> None:
@@ -467,6 +492,21 @@ class ControlPanel(QWidget):
         self.palette_combo.blockSignals(False)
         self._refresh_palette_swatches()
         self.params_changed.emit()
+
+    def _remove_custom_color(self, idx: int) -> None:
+        if 0 <= idx < len(self._custom_palette):
+            self._custom_palette.pop(idx)
+            self._refresh_palette_swatches()
+            self.params_changed.emit()
+
+    def _edit_custom_color(self, idx: int) -> None:
+        if 0 <= idx < len(self._custom_palette):
+            old_c = self._custom_palette[idx]
+            c = QColorDialog.getColor(QColor(*old_c), parent=self, title="Edit Palette Color")
+            if c.isValid():
+                self._custom_palette[idx] = (c.red(), c.green(), c.blue())
+                self._refresh_palette_swatches()
+                self.params_changed.emit()
 
     def _clear_custom_palette(self) -> None:
         self._custom_palette.clear()
