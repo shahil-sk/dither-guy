@@ -130,6 +130,12 @@ class WindowHandlers:
         )
         if not path:
             return
+            
+        # Stop background workers, release buffers, and clear history for both tabs
+        if hasattr(self.image_tab, 'cleanup'):
+            self.image_tab.cleanup()
+        if hasattr(self.video_tab, 'cleanup'):
+            self.video_tab.cleanup()
         
         ext = path.lower().split('.')[-1]
         if ext in ('mp4', 'avi', 'mov', 'mkv', 'webm'):

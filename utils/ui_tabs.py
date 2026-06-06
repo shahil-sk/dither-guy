@@ -233,6 +233,16 @@ class ImageTab(QWidget):
 
     def cleanup(self) -> None:
         self._stop_worker()
+        if hasattr(self, '_orphaned_workers'):
+            for w in self._orphaned_workers:
+                if getattr(w, 'isRunning', lambda: False)():
+                    w.stop()
+                    w.wait()
+                w.deleteLater()
+            self._orphaned_workers.clear()
+        self.original_img = None
+        self.dithered_img = None
+        self._history.clear()
 
     def _load(self, path: str) -> None:
         try:
@@ -894,19 +904,6 @@ class VideoTab(QWidget):
             self._finish_load_video(path, path, duration, name, w, h)
 
     def _on_proxy_done(self, proxy_path: Optional[str], orig_path: str, duration, name, orig_w, orig_h):
-        def cleanup(self) -> None:
-            self.is_playing = False
-            if self._play_timer.isActive():
-                self._play_timer.stop()
-            if self.worker is not None and self.worker.isRunning():
-                self.worker.stop()
-                self.worker.wait()
-            for w in self._orphaned_workers:
-                if w.isRunning():
-                    w.stop()
-                    w.wait()
-                w.deleteLater()
-            self._orphaned_workers.clear()
         if hasattr(self, "_proxy_dlg") and self._proxy_dlg is not None:
             self._proxy_dlg.close()
             self._proxy_dlg = None
@@ -1100,6 +1097,33 @@ class VideoTab(QWidget):
             self.canvas.setStyleSheet(f"background:{_P0};")
         except Exception as exc:
             self.status_message.emit(f"frame error: {exc}")
+
+    def cleanup(self) -> None:
+        self.is_playing = False
+        if getattr(self, '_play_timer', None) and self._play_timer.isActive():
+            self._play_timer.stop()
+        if getattr(self, '_frame_worker', None) and self._frame_worker.isRunning():
+            self._frame_worker.stop()
+            self._frame_worker.wait()
+        if getattr(self, 'export_worker', None) and self.export_worker.isRunning():
+            self.export_worker.stop()
+            self.export_worker.wait()
+        if getattr(self, '_proxy_worker', None) and getattr(self._proxy_worker, 'isRunning', lambda: False)():
+            self._proxy_worker.stop()
+            self._proxy_worker.wait()
+        if hasattr(self, '_orphaned_workers'):
+            for w in self._orphaned_workers:
+                if getattr(w, 'isRunning', lambda: False)():
+                    w.stop()
+                    w.wait()
+                w.deleteLater()
+            self._orphaned_workers.clear()
+        if self.video_cap:
+            self.video_cap.release()
+            self.video_cap = None
+        if self._player is not None:
+            self._player.stop()
+        self.current_frame = None
 
     def keyPressEvent(self, event) -> None:
         if not self.video_cap:
