@@ -54,7 +54,6 @@ env:
     --exclude-module=cupy
     --exclude-module=cupy_cuda11x
     --exclude-module=cupy_cuda12x
-    --exclude-module=pyopencl
     --exclude-module=numba.cuda
     --exclude-module=cv2.gapi
     --exclude-module=cv2.cuda

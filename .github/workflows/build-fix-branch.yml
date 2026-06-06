@@ -56,6 +56,7 @@ jobs:
             --hidden-import=utils.palettes `
             --hidden-import=utils.matrices `
             --hidden-import=utils.dither_kernels `
+            --hidden-import=utils.gpu_kernels `
             --hidden-import=utils.presets `
             --hidden-import=utils.batch `
             --hidden-import=utils.theme `
@@ -130,6 +131,7 @@ jobs:
             --hidden-import=utils.palettes \
             --hidden-import=utils.matrices \
             --hidden-import=utils.dither_kernels \
+            --hidden-import=utils.gpu_kernels \
             --hidden-import=utils.presets \
             --hidden-import=utils.batch \
             --hidden-import=utils.theme \
@@ -188,6 +190,7 @@ jobs:
             --hidden-import=utils.palettes \
             --hidden-import=utils.matrices \
             --hidden-import=utils.dither_kernels \
+            --hidden-import=utils.gpu_kernels \
             --hidden-import=utils.presets \
             --hidden-import=utils.batch \
             --hidden-import=utils.theme \
