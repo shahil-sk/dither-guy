@@ -246,10 +246,25 @@ class DitherGuy(QMainWindow):
 
     def _show_about(self):
         from PySide6.QtWidgets import QMessageBox
-        QMessageBox.about(self, "About Dither Guy", 
-                          f"<b>Dither Guy v{VERSION}</b><br><br>"
-                          "A high-performance GPU-accelerated dithering application.<br>"
-                          "Features advanced PyOpenCL/CUDA compute, video export, and palette processing.")
+        from PySide6.QtCore import qVersion
+        about_text = (
+            f"<h2 style='color:#31c4f3; margin-bottom: 4px;'>Dither Guy v{VERSION}</h2>"
+            "<p>A high-performance GPU-accelerated dithering application.</p>"
+            "<hr>"
+            "<b>Maintainer:</b> Shahil SK<br>"
+            "<b>GitHub:</b> <a href='https://github.com/shahil-sk/dither-guy'>github.com/shahil-sk/dither-guy</a><br>"
+            "<b>Report Issues:</b> <a href='https://github.com/shahil-sk/dither-guy/issues'>Issue Tracker</a><br><br>"
+            "<b>System & Core:</b><br>"
+            f"&#8226; <i>Qt Version:</i> {qVersion()}<br>"
+            f"&#8226; <i>Compute Backend:</i> {GPU_BACKEND.upper()}<br>"
+            f"&#8226; <i>Algorithms:</i> {len(METHODS)}<br><br>"
+            "<span style='color: gray; font-size: 10px;'>Powered by PySide6, PyOpenCL/CUDA, and FFmpeg.</span>"
+        )
+        msg = QMessageBox(self)
+        msg.setWindowTitle("About Dither Guy")
+        msg.setTextFormat(Qt.RichText)
+        msg.setText(about_text)
+        msg.exec()
 
     def _open(self):
         from PySide6.QtWidgets import QFileDialog
