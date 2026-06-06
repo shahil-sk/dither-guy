@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -274,17 +274,12 @@ class VideoExportWorker(_VideoExportBase):
             fps   = cap.get(cv2.CAP_PROP_FPS) or 25.
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            use_gpu_batch = GPU_BACKEND == "cuda"
-            pal_rgb = _resolve_palette_rgb(self._pal, self._cpal) if use_gpu_batch else None
-            if pal_rgb is None:
-                use_gpu_batch = False
-
-            BATCH = _GPU_EXPORT_BATCH if use_gpu_batch else max(1, _VIDEO_WORKERS * 2)
+            BATCH = max(1, _VIDEO_WORKERS * 2)
             count = 0
             last_dithered = None
             frames_buf: list[Image.Image] = []
 
-            with ThreadPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
+            with ProcessPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
                 while self._is_running():
                     frames_buf.clear()
                     for _ in range(BATCH):
@@ -296,17 +291,11 @@ class VideoExportWorker(_VideoExportBase):
                     if not frames_buf:
                         break
 
-                    if use_gpu_batch:
-                        arr = np.stack([np.array(f) for f in frames_buf])
-                        arr_gpu  = to_gpu(arr)
-                        arr_out  = gpu_palette_batch(arr_gpu, pal_rgb)
-                        dithered = [Image.fromarray(arr_out[i]) for i in range(len(arr_out))]
-                    else:
-                        dithered = [
-                            Image.frombytes(mode, size, data)
-                            for data, mode, size in executor.map(
-                                _process_frame_worker, self._make_args(frames_buf))
-                        ]
+                    dithered = [
+                        Image.frombytes(mode, size, data)
+                        for data, mode, size in executor.map(
+                            _process_frame_worker, self._make_args(frames_buf))
+                    ]
 
                     for dith in dithered:
                         if not self._is_running():
@@ -373,18 +362,13 @@ class GifExportWorker(_VideoExportBase):
             total       = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             duration_ms = max(20, int(1000 / fps))
 
-            use_gpu_batch = GPU_BACKEND == "cuda"
-            pal_rgb = _resolve_palette_rgb(self._pal, self._cpal) if use_gpu_batch else None
-            if pal_rgb is None:
-                use_gpu_batch = False
-
-            BATCH = _GPU_EXPORT_BATCH if use_gpu_batch else max(1, _VIDEO_WORKERS * 2)
+            BATCH = max(1, _VIDEO_WORKERS * 2)
 
             frames: list[Image.Image] = []
             count = 0
             frames_buf: list[Image.Image] = []
 
-            with ThreadPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
+            with ProcessPoolExecutor(max_workers=_VIDEO_WORKERS) as executor:
                 while self._is_running():
                     frames_buf.clear()
                     for _ in range(BATCH):
@@ -396,17 +380,11 @@ class GifExportWorker(_VideoExportBase):
                     if not frames_buf:
                         break
 
-                    if use_gpu_batch:
-                        arr = np.stack([np.array(f) for f in frames_buf])
-                        arr_gpu  = to_gpu(arr)
-                        arr_out  = gpu_palette_batch(arr_gpu, pal_rgb)
-                        dithered = [Image.fromarray(arr_out[i]) for i in range(len(arr_out))]
-                    else:
-                        dithered = [
-                            Image.frombytes(mode, size, data)
-                            for data, mode, size in executor.map(
-                                _process_frame_worker, self._make_args(frames_buf))
-                        ]
+                    dithered = [
+                        Image.frombytes(mode, size, data)
+                        for data, mode, size in executor.map(
+                            _process_frame_worker, self._make_args(frames_buf))
+                    ]
 
                     for dith in dithered:
                         if not self._is_running():

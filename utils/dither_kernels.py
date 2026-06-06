@@ -333,7 +333,7 @@ def palette_dither_fast(image: Image.Image, palette: list[tuple], use_gpu: bool 
 # ---------------------------------------------------------------------------
 
 if _NUMBA:
-    @njit(cache=True, fastmath=True)
+    @njit(cache=True, fastmath=True, nogil=True)
     def _fs_core(a, t):
         h, w = a.shape
         for y in range(h):
@@ -347,7 +347,7 @@ if _NUMBA:
                     if x+1 < w: a[y+1, x+1] += e * 0.0625
         return a
 
-    @njit(cache=True, fastmath=True)
+    @njit(cache=True, fastmath=True, nogil=True)
     def _atkinson_core(a, t):
         h, w = a.shape
         for y in range(h):
@@ -363,7 +363,7 @@ if _NUMBA:
                 if y+2 < h: a[y+2, x] += e
         return a
 
-    @njit(cache=True, fastmath=True)
+    @njit(cache=True, fastmath=True, nogil=True)
     def _jjn_core(a, t):
         h, w = a.shape; d = 48.0
         for y in range(h):
@@ -386,7 +386,7 @@ if _NUMBA:
                     if x+2<w: a[y+2,x+2]+=e*1/d
         return a
 
-    @njit(cache=True, fastmath=True)
+    @njit(cache=True, fastmath=True, nogil=True)
     def _stucki_core(a, t):
         h, w = a.shape; d = 42.0
         for y in range(h):
@@ -409,7 +409,7 @@ if _NUMBA:
                     if x+2<w: a[y+2,x+2]+=e*1/d
         return a
 
-    @njit(cache=True, fastmath=True)
+    @njit(cache=True, fastmath=True, nogil=True)
     def _sierra_core(a, t):
         h, w = a.shape; d = 32.0
         for y in range(h):
@@ -430,7 +430,7 @@ if _NUMBA:
                     if x+1<w: a[y+2,x+1]+=e*2/d
         return a
 
-    @njit(cache=True, fastmath=True)
+    @njit(cache=True, fastmath=True, nogil=True)
     def _sierra_lite_core(a, t):
         h, w = a.shape
         for y in range(h):
@@ -443,7 +443,7 @@ if _NUMBA:
                     a[y+1,x]+=e*0.25
         return a
 
-    @njit(cache=True, fastmath=True)
+    @njit(cache=True, fastmath=True, nogil=True)
     def _nakano_core(a, t):
         h, w = a.shape
         for y in range(h):
