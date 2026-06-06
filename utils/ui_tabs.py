@@ -54,6 +54,7 @@ class ImageTab(QWidget):
         self.last_dir       = str(Path.home())
         self.worker:        Optional[DitherWorker] = None
         self._worker_id     = 0
+        self._orphaned_workers = []
         self.auto_update    = True
         self._history:      list[Image.Image] = []
         self._timer         = QTimer(singleShot=True)
@@ -235,12 +236,19 @@ class ImageTab(QWidget):
             old_worker = self.worker
             
             # Workaround for shadowed 'finished' signal:
-            # The custom finished signal might not be emitted if stopped.
-            # But the Python object will be garbage collected eventually if we drop the ref.
-            # To be strictly safe and avoid C++ object leaks, we can tell QThread to delete
-            # itself when it's done at the C++ level.
-            old_worker.finished.connect(old_worker.deleteLater)
-            old_worker.error.connect(old_worker.deleteLater)
+            # We must keep a strong reference to the old worker, otherwise Python
+            # garbage collects it while the C++ thread is still running, which
+            # causes PySide6 to trigger a SIGABRT crash.
+            old_worker = self.worker
+            self._orphaned_workers.append(old_worker)
+            
+            def _cleanup(*args, w=old_worker):
+                if w in self._orphaned_workers:
+                    self._orphaned_workers.remove(w)
+                w.deleteLater()
+
+            old_worker.finished.connect(_cleanup)
+            old_worker.error.connect(_cleanup)
             
             self.worker = None
 
@@ -485,6 +493,8 @@ class ImageTab(QWidget):
     # ── Worker callbacks ────────────────────────────────────────────────
 
     def _on_done(self, payload, worker_id: int) -> None:
+        if payload is None:
+            return
         if worker_id != self._worker_id:
             return
         

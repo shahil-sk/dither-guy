@@ -109,6 +109,8 @@ class DitherWorker(QThread):
             self._mutex.unlock()
             if ok:
                 self.finished.emit((result, elapsed, self._prev))
+            else:
+                self.finished.emit(None)
         except MemoryError:
             self.error.emit("Out of memory — try smaller image or larger pixel size.")
         except Exception as exc:
