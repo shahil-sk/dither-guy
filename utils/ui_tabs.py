@@ -1081,8 +1081,20 @@ class VideoTab(QWidget):
                 return  # Drop frame instead of cancelling to ensure frames actually render
             else:
                 self._frame_worker.stop()
-                self._frame_worker.wait(200)
-                self._frame_worker.deleteLater()
+                
+                # Safely orphan the worker in case it doesn't stop immediately
+                old_w = self._frame_worker
+                if not hasattr(self, '_orphaned_workers'):
+                    self._orphaned_workers = []
+                self._orphaned_workers.append(old_w)
+                
+                def _cleanup(*args, w=old_w):
+                    if w in self._orphaned_workers:
+                        self._orphaned_workers.remove(w)
+                    w.deleteLater()
+                    
+                old_w.finished.connect(_cleanup)
+                self._frame_worker = None
 
         from .workers import FrameDitherWorker
         self._frame_worker = FrameDitherWorker(img, p)
@@ -1090,6 +1102,8 @@ class VideoTab(QWidget):
         self._frame_worker.start()
 
     def _on_frame_dithered(self, dith: Image.Image) -> None:
+        if dith is None:
+            return
         try:
             self.canvas.set_image(pil_to_pixmap(dith))
             self.canvas.setStyleSheet(f"background:{_P0};")

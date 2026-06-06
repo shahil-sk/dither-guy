@@ -159,6 +159,8 @@ class FrameDitherWorker(QThread):
             self._mutex.unlock()
             if ok:
                 self.finished.emit(result)
+            else:
+                self.finished.emit(None)
         except Exception as e:
             import traceback
             traceback.print_exc()
