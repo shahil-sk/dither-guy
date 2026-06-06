@@ -243,47 +243,51 @@ def gpu_rgb_to_lab(r_device):
 _PALETTE_NEAREST_BATCH = 1_048_576  # pixels per chunk -- caps peak VRAM allocation
 
 
+import threading
+_GPU_LOCK = threading.Lock()
+
 def gpu_palette_nearest(flat, pal_lab: np.ndarray) -> np.ndarray:
     """Return argmin palette index for each row of `flat` (N,3) RGB."""
-    if GPU_BACKEND == "cpu":
-        pix_lab = _cpu_rgb_to_lab(np.asarray(flat))
-        pix_sq  = np.sum(pix_lab**2, axis=-1, keepdims=True)
-        pal_sq  = np.sum(pal_lab**2, axis=-1)
-        dists   = pix_sq + pal_sq - 2 * (pix_lab @ pal_lab.T)
-        return np.argmin(dists, axis=1)
-        
-    if GPU_BACKEND == "opencl":
-        import pyopencl.array as cl_array
-        gpal = _get_gpal(pal_lab)
+    with _GPU_LOCK:
+        if GPU_BACKEND == "cpu":
+            pix_lab = _cpu_rgb_to_lab(np.asarray(flat))
+            pix_sq  = np.sum(pix_lab**2, axis=-1, keepdims=True)
+            pal_sq  = np.sum(pal_lab**2, axis=-1)
+            dists   = pix_sq + pal_sq - 2 * (pix_lab @ pal_lab.T)
+            return np.argmin(dists, axis=1)
+            
+        if GPU_BACKEND == "opencl":
+            import pyopencl.array as cl_array
+            gpal = _get_gpal(pal_lab)
+            results = []
+            n = flat.shape[0]
+            num_colors = pal_lab.shape[0]
+            for i in range(0, n, _PALETTE_NEAREST_BATCH):
+                chunk = flat[i : i + _PALETTE_NEAREST_BATCH]
+                size = chunk.shape[0]
+                out = cl_array.empty(_CL_QUEUE, (size,), dtype=np.int32)
+                _CL_PRG.rgb_to_lab_nearest(_CL_QUEUE, (size,), None, chunk.data, gpal.data, out.data, np.int32(size), np.int32(num_colors))
+                results.append(out.get())
+            return np.concatenate(results)
+
+        xp      = _active_np()
+        gpal    = _get_gpal(pal_lab)
         results = []
-        n = flat.shape[0]
-        num_colors = pal_lab.shape[0]
+        n       = flat.shape[0]
+
         for i in range(0, n, _PALETTE_NEAREST_BATCH):
-            chunk = flat[i : i + _PALETTE_NEAREST_BATCH]
-            size = chunk.shape[0]
-            out = cl_array.empty(_CL_QUEUE, (size,), dtype=np.int32)
-            _CL_PRG.rgb_to_lab_nearest(_CL_QUEUE, (size,), None, chunk.data, gpal.data, out.data, np.int32(size), np.int32(num_colors))
-            results.append(out.get())
+            chunk    = flat[i : i + _PALETTE_NEAREST_BATCH]
+            gpix_lab = gpu_rgb_to_lab(chunk)
+            
+            # O(NK) memory instead of O(NKC) via a^2 + b^2 - 2ab expansion
+            gpix_sq = xp.sum(gpix_lab**2, axis=-1, keepdims=True)
+            gpal_sq = xp.sum(gpal**2, axis=-1)
+            dot     = gpix_lab @ gpal.T
+            dists   = gpix_sq + gpal_sq - 2 * dot
+            
+            results.append(from_gpu(xp.argmin(dists, axis=1)))
+
         return np.concatenate(results)
-
-    xp      = _active_np()
-    gpal    = _get_gpal(pal_lab)
-    results = []
-    n       = flat.shape[0]
-
-    for i in range(0, n, _PALETTE_NEAREST_BATCH):
-        chunk    = flat[i : i + _PALETTE_NEAREST_BATCH]
-        gpix_lab = gpu_rgb_to_lab(chunk)
-        
-        # O(NK) memory instead of O(NKC) via a^2 + b^2 - 2ab expansion
-        gpix_sq = xp.sum(gpix_lab**2, axis=-1, keepdims=True)
-        gpal_sq = xp.sum(gpal**2, axis=-1)
-        dot     = gpix_lab @ gpal.T
-        dists   = gpix_sq + gpal_sq - 2 * dot
-        
-        results.append(from_gpu(xp.argmin(dists, axis=1)))
-
-    return np.concatenate(results)
 
 
 def gpu_palette_batch(frames_gpu, pal_rgb: np.ndarray) -> np.ndarray:
