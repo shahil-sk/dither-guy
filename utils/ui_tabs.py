@@ -63,7 +63,6 @@ class ImageTab(QWidget):
         self._preview_timer.timeout.connect(self._process_preview)
         self._split_visible = True
         self._build()
-        self.setAcceptDrops(True)
 
     # ── Build ──────────────────────────────────────────────────────────────
 
@@ -141,19 +140,6 @@ class ImageTab(QWidget):
         layout.addWidget(bar1)
 
 
-
-    # ── Drag & drop ──────────────────────────────────────────────────
-
-    def dragEnterEvent(self, e) -> None:
-        if e.mimeData().hasUrls():
-            e.acceptProposedAction()
-
-    def dropEvent(self, e) -> None:
-        for url in e.mimeData().urls():
-            p = url.toLocalFile()
-            if Path(p).suffix.lower() in self._DROP_EXTS:
-                self._load(p)
-                break
 
     # ── Auto-update ──────────────────────────────────────────────────
 

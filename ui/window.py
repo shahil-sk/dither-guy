@@ -40,6 +40,7 @@ class DitherGuy(QMainWindow, WindowHandlers, WindowToolbar):
         self.video_tab.status_message.connect(self._show_status)
 
         self._build_ui()
+        self.setAcceptDrops(True)
         self._show_status("ready")
 
     def _show_status(self, msg: str) -> None:
@@ -49,6 +50,29 @@ class DitherGuy(QMainWindow, WindowHandlers, WindowToolbar):
         self.image_tab.cleanup()
         self.video_tab.cleanup()
         event.accept()
+
+    def dragEnterEvent(self, e) -> None:
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e) -> None:
+        image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".webp"}
+        video_exts = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+        
+        for url in e.mimeData().urls():
+            p = url.toLocalFile()
+            ext = Path(p).suffix.lower()
+            if ext in image_exts:
+                self.view_stack.setCurrentIndex(0)
+                self.ctrl_stack.setCurrentIndex(0)
+                self.image_tab._load(p)
+                break
+            elif ext in video_exts:
+                self.view_stack.setCurrentIndex(1)
+                self.ctrl_stack.setCurrentIndex(1)
+                self.video_tab.last_dir = str(Path(p).parent)
+                self.video_tab._load_video(p)
+                break
 
     def _load_icon(self) -> None:
         for name in ("app_icon.png", "app_icon.ico"):
