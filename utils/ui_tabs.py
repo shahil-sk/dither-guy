@@ -223,13 +223,15 @@ class ImageTab(QWidget):
         self.worker.start()
 
     def _stop_worker(self) -> None:
-        if self.worker and self.worker.isRunning():
+        if getattr(self, "worker", None) and self.worker.isRunning():
             self._worker_id = 0
             self.worker.stop()
-            if not self.worker.wait(1500):
-                self.worker.terminate()
-                self.worker.wait(400)
-            self.worker.deleteLater()
+            
+            # Safely orphan the old worker so it dies naturally without blocking UI
+            old_worker = self.worker
+            old_worker.finished.connect(old_worker.deleteLater)
+            old_worker.error.connect(old_worker.deleteLater)
+            
             self.worker = None
 
     # ── File I/O ──────────────────────────────────────────────────────
