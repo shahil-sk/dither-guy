@@ -885,8 +885,27 @@ class VideoTab(QWidget):
             cap.release()
             self.video_cap = None
             
+            import time
+            self._proxy_start_time = time.time()
             self._proxy_worker = ProxyGeneratorWorker(path, tw, th)
-            self._proxy_worker.progress.connect(self._proxy_dlg.setValue)
+            
+            def _on_proxy_progress(cur: int) -> None:
+                if not hasattr(self, '_proxy_dlg') or self._proxy_dlg is None: return
+                self._proxy_dlg.setValue(cur)
+                elapsed = time.time() - getattr(self, '_proxy_start_time', time.time())
+                fps = cur / elapsed if elapsed > 0 else 0
+                total = self._total_frames
+                if fps > 0:
+                    eta_sec = (total - cur) / fps
+                    m, s = divmod(int(eta_sec), 60)
+                    h, m = divmod(m, 60)
+                    eta_str = f"{h}h {m}m {s}s" if h > 0 else f"{m}m {s}s"
+                else:
+                    eta_str = "..."
+                pct = int((cur / total) * 100) if total > 0 else 0
+                self._proxy_dlg.setLabelText(f"Generating proxy video to prevent lag... {pct}%  •  {fps:.1f} fps  •  ETA {eta_str}")
+            
+            self._proxy_worker.progress.connect(_on_proxy_progress)
             self._proxy_worker.error.connect(lambda e: self._on_proxy_done(None, path, duration, name, w, h))
             self._proxy_worker.finished_proxy.connect(lambda p_path: self._on_proxy_done(p_path, path, duration, name, w, h))
             self._proxy_worker.start()
@@ -1148,6 +1167,8 @@ class VideoTab(QWidget):
         self.export_btn.setObjectName("")
         self.export_btn.setStyleSheet(f"background: {_RE}; color: #FFF; font-weight: bold;")
         
+        import time
+        self._export_start_time = time.time()
         self.export_worker.start()
 
     def _on_export_click(self) -> None:
@@ -1173,7 +1194,18 @@ class VideoTab(QWidget):
     def _on_export_progress(self, cur: int, total: int) -> None:
         self.export_bar.setMaximum(total)
         self.export_bar.setValue(cur)
-        self.status_message.emit(f"exporting {cur}/{total} frames")
+        import time
+        elapsed = time.time() - getattr(self, '_export_start_time', time.time())
+        fps = cur / elapsed if elapsed > 0 else 0
+        if fps > 0:
+            eta_sec = (total - cur) / fps
+            m, s = divmod(int(eta_sec), 60)
+            h, m = divmod(m, 60)
+            eta_str = f"{h}h {m}m {s}s" if h > 0 else f"{m}m {s}s"
+        else:
+            eta_str = "..."
+        pct = int((cur / total) * 100) if total > 0 else 0
+        self.status_message.emit(f"Exporting {pct}%  •  {cur}/{total} frames  •  {fps:.1f} fps  •  ETA {eta_str}")
 
     def _on_export_done(self) -> None:
         if self.export_worker is None:

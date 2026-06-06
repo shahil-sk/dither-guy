@@ -236,14 +236,27 @@ class BatchDialog(QDialog):
         self.info_lbl.setText(f"Processing {len(files)} images with {_VIDEO_WORKERS} workers…")
 
         self.worker = BatchWorker(in_dir, out_dir, params, self._cancel)
+        import time
+        self._batch_start_time = time.time()
         self.worker.progress.connect(self._progress)
         self.worker.finished_batch.connect(self._on_done)
         self.worker.start()
 
     def _progress(self, done: int, total: int, name: str) -> None:
         self.prog.setValue(done)
-        short = name[:40] if len(name) > 40 else name
-        self.info_lbl.setText(f"[{done}/{total}] {short}")
+        import time
+        elapsed = time.time() - getattr(self, '_batch_start_time', time.time())
+        fps = done / elapsed if elapsed > 0 else 0
+        if fps > 0:
+            eta_sec = (total - done) / fps
+            m, s = divmod(int(eta_sec), 60)
+            h, m = divmod(m, 60)
+            eta_str = f"{h}h {m}m {s}s" if h > 0 else f"{m}m {s}s"
+        else:
+            eta_str = "..."
+        pct = int((done / total) * 100) if total > 0 else 0
+        short = name[:20] + "..." if len(name) > 20 else name
+        self.info_lbl.setText(f"Processing {pct}%  •  [{done}/{total}]  •  {fps:.1f} img/s  •  ETA {eta_str}  •  {short}")
 
     def _on_done(self, ok: int, err: int) -> None:
         self.prog.setVisible(False)
