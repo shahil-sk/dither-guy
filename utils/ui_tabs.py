@@ -215,6 +215,8 @@ class ImageTab(QWidget):
             return
         self._stop_worker()
         self.status_message.emit("processing...")
+        if hasattr(self, "_progress_dlg"):
+            self._progress_dlg.show()
         wid = next(_worker_id_counter)
         self._worker_id = wid
         self.worker = self._build_worker(preview=False)
@@ -228,7 +230,15 @@ class ImageTab(QWidget):
             self.worker.stop()
             
             # Safely orphan the old worker so it dies naturally without blocking UI
+            # We connect to QThread's finished signal safely. Since 'finished' is shadowed
+            # by our custom signal, we must ensure it gets deleted.
             old_worker = self.worker
+            
+            # Workaround for shadowed 'finished' signal:
+            # The custom finished signal might not be emitted if stopped.
+            # But the Python object will be garbage collected eventually if we drop the ref.
+            # To be strictly safe and avoid C++ object leaks, we can tell QThread to delete
+            # itself when it's done at the C++ level.
             old_worker.finished.connect(old_worker.deleteLater)
             old_worker.error.connect(old_worker.deleteLater)
             
@@ -477,6 +487,12 @@ class ImageTab(QWidget):
     def _on_done(self, payload, worker_id: int) -> None:
         if worker_id != self._worker_id:
             return
+        
+        # Reset the popup and status message
+        if hasattr(self, "_progress_dlg"):
+            self._progress_dlg.reset()
+        self.status_message.emit("ready")
+
         img, elapsed, is_preview = payload
         if not is_preview:
             self.dithered_img = img
@@ -486,6 +502,8 @@ class ImageTab(QWidget):
         self.canvas.setStyleSheet(f"background:{_P0};")
 
     def _on_error(self, msg: str) -> None:
+        if hasattr(self, "_progress_dlg"):
+            self._progress_dlg.reset()
         self.status_message.emit(f"error: {msg}")
         QMessageBox.warning(self, "Processing Error", msg)
 
