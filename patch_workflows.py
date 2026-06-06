@@ -1,4 +1,6 @@
-name: Build Dither Guy Executables
+import os
+
+main_yml = """name: Build Dither Guy Executables
 
 on:
   pull_request:
@@ -123,7 +125,11 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends             libxcb-xinerama0 libxcb-cursor0 libxcb-icccm4 libxcb-image0             libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0             libxkbcommon-x11-0 libxcb-xkb1 libegl1 libfontconfig1 libdbus-1-3             upx-ucl
+          sudo apt-get install -y --no-install-recommends \
+            libxcb-xinerama0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxkbcommon-x11-0 libxcb-xkb1 libegl1 libfontconfig1 libdbus-1-3 \
+            upx-ucl
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -141,7 +147,18 @@ jobs:
           else
               NAME="DitherGuy-CUDA"
           fi
-          pyinstaller --clean --noconfirm             --name="$NAME"             --onefile --windowed --strip             --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets             --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=PIL.ImageFilter --hidden-import=PIL.ImageEnhance             --hidden-import=numpy --hidden-import=cv2 --hidden-import=shiboken6             --hidden-import=utils --hidden-import=utils.constants --hidden-import=utils.palettes             --hidden-import=utils.matrices --hidden-import=utils.dither_kernels --hidden-import=utils.gpu_kernels             --hidden-import=utils.presets --hidden-import=utils.batch --hidden-import=utils.theme             --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel             --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs             $EXCLUDES main.py
+          pyinstaller --clean --noconfirm \
+            --name="$NAME" \
+            --onefile --windowed --strip \
+            --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets \
+            --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=PIL.ImageFilter --hidden-import=PIL.ImageEnhance \
+            --hidden-import=numpy --hidden-import=cv2 --hidden-import=shiboken6 \
+            --hidden-import=utils --hidden-import=utils.constants --hidden-import=utils.palettes \
+            --hidden-import=utils.matrices --hidden-import=utils.dither_kernels --hidden-import=utils.gpu_kernels \
+            --hidden-import=utils.presets --hidden-import=utils.batch --hidden-import=utils.theme \
+            --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel \
+            --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs \
+            $EXCLUDES main.py
       - name: Make executable
         run: chmod +x dist/DitherGuy*
       - uses: actions/upload-artifact@v4
@@ -167,7 +184,18 @@ jobs:
       - name: Build
         run: |
           EXCLUDES="${{ env._EXCLUDES }} --exclude-module=cupy --exclude-module=cupy_cuda11x --exclude-module=cupy_cuda12x"
-          pyinstaller --clean --noconfirm             --name="DitherGuy"             --onefile --windowed --strip             --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets             --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=PIL.ImageFilter --hidden-import=PIL.ImageEnhance             --hidden-import=numpy --hidden-import=cv2 --hidden-import=shiboken6             --hidden-import=utils --hidden-import=utils.constants --hidden-import=utils.palettes             --hidden-import=utils.matrices --hidden-import=utils.dither_kernels --hidden-import=utils.gpu_kernels             --hidden-import=utils.presets --hidden-import=utils.batch --hidden-import=utils.theme             --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel             --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs             $EXCLUDES main.py
+          pyinstaller --clean --noconfirm \
+            --name="DitherGuy" \
+            --onefile --windowed --strip \
+            --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets \
+            --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=PIL.ImageFilter --hidden-import=PIL.ImageEnhance \
+            --hidden-import=numpy --hidden-import=cv2 --hidden-import=shiboken6 \
+            --hidden-import=utils --hidden-import=utils.constants --hidden-import=utils.palettes \
+            --hidden-import=utils.matrices --hidden-import=utils.dither_kernels --hidden-import=utils.gpu_kernels \
+            --hidden-import=utils.presets --hidden-import=utils.batch --hidden-import=utils.theme \
+            --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel \
+            --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs \
+            $EXCLUDES main.py
       - uses: actions/upload-artifact@v4
         with:
           name: DitherGuy-macOS
@@ -184,21 +212,54 @@ jobs:
           path: artifacts
       - name: Rename platform binaries
         run: |
-          mv artifacts/DitherGuy-Windows-universal/DitherGuy.exe         artifacts/DitherGuy-Windows-universal/DitherGuy-Windows.exe
+          mv artifacts/DitherGuy-Windows-universal/DitherGuy.exe         artifacts/DitherGuy-Windows-universal/DitherGuy-Windows-Universal.exe
           mv artifacts/DitherGuy-Windows-cuda/DitherGuy-CUDA.exe         artifacts/DitherGuy-Windows-cuda/DitherGuy-Windows-CUDA.exe
-          mv artifacts/DitherGuy-Linux-universal/DitherGuy               artifacts/DitherGuy-Linux-universal/DitherGuy-Linux
+          mv artifacts/DitherGuy-Linux-universal/DitherGuy               artifacts/DitherGuy-Linux-universal/DitherGuy-Linux-Universal
           mv artifacts/DitherGuy-Linux-cuda/DitherGuy-CUDA               artifacts/DitherGuy-Linux-cuda/DitherGuy-Linux-CUDA
-          mv artifacts/DitherGuy-macOS/DitherGuy                         artifacts/DitherGuy-macOS/DitherGuy-macOS
+          mv artifacts/DitherGuy-macOS/DitherGuy                         artifacts/DitherGuy-macOS/DitherGuy-macOS-Universal
       - uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/DitherGuy-Windows-universal/DitherGuy-Windows.exe
+            artifacts/DitherGuy-Windows-universal/DitherGuy-Windows-Universal.exe
             artifacts/DitherGuy-Windows-cuda/DitherGuy-Windows-CUDA.exe
-            artifacts/DitherGuy-Linux-universal/DitherGuy-Linux
+            artifacts/DitherGuy-Linux-universal/DitherGuy-Linux-Universal
             artifacts/DitherGuy-Linux-cuda/DitherGuy-Linux-CUDA
-            artifacts/DitherGuy-macOS/DitherGuy-macOS
+            artifacts/DitherGuy-macOS/DitherGuy-macOS-Universal
           draft: false
           prerelease: false
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+"""
+
+with open(".github/workflows/main.yml", "w") as f:
+    f.write(main_yml)
+
+# Duplicate the structure for build-fix-branch.yml but omitting the release step
+fix_yml = main_yml.replace("name: Build Dither Guy Executables", "name: Build Executables (fix branches)")
+fix_yml = fix_yml.replace("""on:
+  pull_request:
+    branches:
+      - 'master'
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:""", """on:
+  push:
+    branches:
+      - 'fix/**'
+      - 'bugfix/**'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build (must already exist)'
+        required: false
+        default: ''""")
+
+# Remove the create-release job
+fix_yml = fix_yml.split("  create-release:")[0]
+
+with open(".github/workflows/build-fix-branch.yml", "w") as f:
+    f.write(fix_yml)
+
+print("Workflows updated successfully.")
