@@ -51,5 +51,19 @@ class WindowToolbar:
         view_menu.addAction(a_fit)
         view_menu.addAction(a_1to1)
 
+        a_shortcuts = create_action("Keyboard Shortcuts", "Ctrl+?", self._show_shortcuts, "View all keyboard shortcuts")
+        help_menu.addAction(a_shortcuts)
+
         a_about = create_action("About Dither Guy...", "", self._show_about, "About this application")
         help_menu.addAction(a_about)
+
+        from PySide6.QtWidgets import QLabel
+        from PySide6.QtCore import Qt
+        from utils.theme import _MONO_FONT, _G0
+        
+        self.zoom_lbl = QLabel("fit")
+        self.zoom_lbl.setMinimumWidth(52)
+        self.zoom_lbl.setAlignment(Qt.AlignCenter)
+        self.zoom_lbl.setStyleSheet(f"font-family:{_MONO_FONT}; color:{_G0}; font-size:11px; padding:0 8px;")
+        self.zoom_lbl.setToolTip("Current zoom level")
+        self.statusBar().addPermanentWidget(self.zoom_lbl)

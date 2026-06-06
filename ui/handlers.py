@@ -56,6 +56,33 @@ class WindowHandlers:
         msg.setText(about_text)
         msg.exec()
 
+    def _show_shortcuts(self: 'DitherGuy') -> None:
+        shortcuts = [
+            ("Open Media", "Ctrl+O"),
+            ("Save / Export", "Ctrl+S"),
+            ("Batch Process", "Ctrl+B"),
+            ("Undo", "Ctrl+Z"),
+            ("Reset Defaults", "Ctrl+D"),
+            ("Randomize", "Ctrl+R"),
+            ("Zoom In", "Ctrl+="),
+            ("Zoom Out", "Ctrl+-"),
+            ("Fit on Screen", "Ctrl+0"),
+            ("100% Zoom", "Ctrl+1"),
+            ("Shortcuts Help", "Ctrl+?"),
+        ]
+        
+        html = "<h3 style='color:#31c4f3; margin-bottom: 8px;'>Keyboard Shortcuts</h3>"
+        html += "<table style='width: 100%; font-size: 11px;' cellspacing='4'>"
+        for action, key in shortcuts:
+            html += f"<tr><td>{action}</td><td style='color:#a8a8a8; text-align:right;'><b>{key}</b></td></tr>"
+        html += "</table>"
+        
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Keyboard Shortcuts")
+        msg.setTextFormat(Qt.RichText)
+        msg.setText(html)
+        msg.exec()
+
     def _open(self: 'DitherGuy') -> None:
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Media", self._active().last_dir,
