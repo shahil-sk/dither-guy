@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from utils.constants import METHODS, VERSION, _VIDEO_WORKERS
 from utils.palettes import PALETTES
-from utils.theme import THEME, _G0, _G1, _G2, _G3, _P0, _P2, _P3, _P4, _P5, _FG, _MONO_FONT
+from utils.theme import THEME, _G0, _G1, _G2, _G3, _P0, _P2, _P3, _P4, _P5, _FG, _MONO_FONT, _SANS_FONT
 from utils.ui_control_panel import ControlPanel
 from utils.ui_tabs import ImageTab, VideoTab
 from utils.ui_dialogs import BatchDialog
