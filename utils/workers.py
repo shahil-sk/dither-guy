@@ -28,7 +28,12 @@ _GPU_EXPORT_BATCH = 8
 def _ffmpeg_mux_audio(video_only_path: str, source_video_path: str, output_path: str) -> bool:
     """Mux audio from source_video_path into video_only_path, write to output_path.
     Returns True on success, False if ffmpeg unavailable or source has no audio."""
-    ffmpeg_cmd = "ffmpeg"
+    try:
+        import imageio_ffmpeg
+        ffmpeg_cmd = imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        ffmpeg_cmd = "ffmpeg"
+        
     try:
         subprocess.run(
             [ffmpeg_cmd, "-version"],
