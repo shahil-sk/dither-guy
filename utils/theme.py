@@ -56,7 +56,7 @@ QToolBar QToolButton {{
     padding: 6px 4px;
     color: {_FG2};
     font-family: {_SANS_FONT};
-    font-size: 10px;
+    font-size: 16px;
     min-width: 32px;
     text-align: center;
 }}

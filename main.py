@@ -112,6 +112,49 @@ class DitherGuy(QMainWindow):
         splitter.setCollapsible(1, False)
 
     def _build_toolbar(self):
+        # 1. Top Menu Bar (Nav Bar)
+        menubar = self.menuBar()
+        
+        file_menu = menubar.addMenu("File")
+        view_menu = menubar.addMenu("View")
+        edit_menu = menubar.addMenu("Edit")
+        
+        def create_action(label, shortcut, slot, tip=""):
+            a = QAction(label, self)
+            if shortcut:
+                a.setShortcut(shortcut)
+            if tip:
+                a.setStatusTip(tip)
+                a.setToolTip(tip)
+            a.triggered.connect(slot)
+            return a
+            
+        a_open  = create_action("Open...", "Ctrl+O", self._open, "Open image")
+        a_save  = create_action("Save As...", "Ctrl+S", self._save, "Save output")
+        a_batch = create_action("Batch Process...", "Ctrl+B", self._batch, "Batch process folder")
+        file_menu.addAction(a_open)
+        file_menu.addAction(a_save)
+        file_menu.addSeparator()
+        file_menu.addAction(a_batch)
+        
+        a_undo = create_action("Undo", "Ctrl+Z", lambda: self.image_tab.undo(), "Undo last image operation")
+        a_reset = create_action("Reset Defaults", "Ctrl+D", self._reset_all, "Reset settings")
+        a_rand = create_action("Randomize", "Ctrl+R", self._randomize, "Randomize properties")
+        edit_menu.addAction(a_undo)
+        edit_menu.addSeparator()
+        edit_menu.addAction(a_reset)
+        edit_menu.addAction(a_rand)
+        
+        a_zin  = create_action("Zoom In", "Ctrl+=", self._zoom_in, "Zoom in")
+        a_zout = create_action("Zoom Out", "Ctrl+-", self._zoom_out, "Zoom out")
+        a_fit  = create_action("Fit on Screen", "Ctrl+0", self._fit, "Fit to window")
+        a_1to1 = create_action("100%", "Ctrl+1", self._actual, "Actual pixels")
+        view_menu.addAction(a_zin)
+        view_menu.addAction(a_zout)
+        view_menu.addAction(a_fit)
+        view_menu.addAction(a_1to1)
+
+        # 2. Left Tool Palette
         tb = QToolBar("Tools")
         tb.setMovable(False)
         tb.setOrientation(Qt.Vertical)
@@ -122,35 +165,27 @@ class DitherGuy(QMainWindow):
         brand.setAlignment(Qt.AlignCenter)
         brand.setStyleSheet(
             f"font-family:{_SANS_FONT}; color:#31c4f3; font-weight:bold;"
-            f"font-size:18px; padding:8px 0px; margin: 4px; border: 2px solid #31c4f3; border-radius: 4px;"
+            f"font-size:18px; padding:6px 0px; margin: 4px 4px 12px 4px; border: 2px solid #31c4f3; border-radius: 4px;"
             f"background: #1e1e1e;"
         )
         tb.addWidget(brand)
 
-        def act(label, shortcut, slot, tip=""):
-            a = QAction(label, self)
-            if shortcut:
-                a.setShortcut(shortcut)
-            if tip:
-                a.setStatusTip(tip)
-                a.setToolTip(tip)
-            a.triggered.connect(slot)
+        def tool_btn(icon_text, action):
+            a = QAction(icon_text, self)
+            a.setToolTip(action.toolTip() or action.text())
+            a.triggered.connect(action.trigger)
             tb.addAction(a)
-            return a
 
-        act("open",  "Ctrl+O", self._open,  "Open image (Ctrl+O)")
-        act("save",  "Ctrl+S", self._save,  "Save output (Ctrl+S)")
-        act("batch", "Ctrl+B", self._batch, "Batch process folder (Ctrl+B)")
+        tool_btn("📂", a_open)
+        tool_btn("💾", a_save)
+        tool_btn("⚡", a_batch)
         tb.addSeparator()
-        act("zoom +", "Ctrl+=", self._zoom_in,  "Zoom in (Ctrl+=)")
-        act("zoom -", "Ctrl+-", self._zoom_out, "Zoom out (Ctrl+-)")
-        act("fit",    "Ctrl+0", self._fit,      "Fit to window (Ctrl+0)")
-        act("1:1",    "Ctrl+1", self._actual,   "Actual pixel size (Ctrl+1)")
+        tool_btn("🔍", a_zin)
+        tool_btn("🔎", a_zout)
+        tool_btn("⤢", a_fit)
+        tool_btn("1:1", a_1to1)
         tb.addSeparator()
-        act("undo",  "Ctrl+Z", lambda: self.image_tab.undo(), "Undo last image operation (Ctrl+Z)")
-        tb.addSeparator()
-        act("reset", "Ctrl+D", self._reset_all, "Reset all settings to default (Ctrl+D)")
-        act("randomize", "Ctrl+R", self._randomize, "Randomize all properties (Ctrl+R)")
+        tool_btn("↩", a_undo)
         tb.addSeparator()
 
         self.zoom_lbl = QLabel("fit")
