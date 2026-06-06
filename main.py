@@ -112,15 +112,18 @@ class DitherGuy(QMainWindow):
         splitter.setCollapsible(1, False)
 
     def _build_toolbar(self):
-        tb = QToolBar("Main")
+        tb = QToolBar("Tools")
         tb.setMovable(False)
+        tb.setOrientation(Qt.Vertical)
         tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self.addToolBar(tb)
+        self.addToolBar(Qt.LeftToolBarArea, tb)
 
-        brand = QLabel("DITHER GUY")
+        brand = QLabel("Dg")
+        brand.setAlignment(Qt.AlignCenter)
         brand.setStyleSheet(
-            f"font-family:{_MONO_FONT}; color:{_FG}; font-weight:bold;"
-            "font-size:14px; letter-spacing:4px; padding:0 18px 0 6px;"
+            f"font-family:{_SANS_FONT}; color:#31c4f3; font-weight:bold;"
+            f"font-size:18px; padding:8px 0px; margin: 4px; border: 2px solid #31c4f3; border-radius: 4px;"
+            f"background: #1e1e1e;"
         )
         tb.addWidget(brand)
 
