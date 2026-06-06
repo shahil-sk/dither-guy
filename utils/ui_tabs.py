@@ -1043,7 +1043,12 @@ class VideoTab(QWidget):
             pos_ms = self._player.position()
             target_frame = int((pos_ms / 1000.0) * self._fps)
             diff = target_frame - frame_idx
-            if diff > 2:
+            
+            # If audio looped or jumped backwards significantly, sync video backwards
+            if diff < -max(10, int(self._fps / 2)):
+                self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+                frame_idx = target_frame
+            elif diff > 2:
                 self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
                 frame_idx = target_frame
             elif diff < -2:
