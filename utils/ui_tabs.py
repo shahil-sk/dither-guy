@@ -138,15 +138,6 @@ class ImageTab(QWidget):
         self.apply_btn.setMinimumHeight(28)
         bl1.addWidget(self.apply_btn)
         bl1.addStretch()
-
-        self.undo_btn = QPushButton("↩ Undo")
-        self.undo_btn.clicked.connect(self.undo)
-        self.undo_btn.setEnabled(False)
-        self.undo_btn.setMinimumHeight(22)
-        self.undo_btn.setStyleSheet(
-            f"font-size:10px; font-family:{_MONO_FONT}; padding:2px 7px;"
-        )
-        bl1.addWidget(self.undo_btn)
         layout.addWidget(bar1)
 
 
@@ -270,7 +261,6 @@ class ImageTab(QWidget):
                     return
             self.original_img = img.convert("RGB")
             self._history.clear()
-            self.undo_btn.setEnabled(False)
             self.last_dir = str(Path(path).parent)
             # show source in left pane immediately
             pass
@@ -307,7 +297,6 @@ class ImageTab(QWidget):
                 return
         self.original_img = pil_img
         self._history.clear()
-        self.undo_btn.setEnabled(False)
 
         self._refresh_info()
         self.process()
@@ -417,7 +406,6 @@ class ImageTab(QWidget):
         self._history.append(self.original_img.copy())
         if len(self._history) > _HISTORY_LIMIT:
             self._history.pop(0)
-        self.undo_btn.setEnabled(True)
 
     def _require_image(self, op: str = "do this") -> bool:
         if self.original_img is None:
@@ -488,7 +476,6 @@ class ImageTab(QWidget):
         if not self._history:
             return
         self.original_img = self._history.pop()
-        self.undo_btn.setEnabled(bool(self._history))
         self.status_message.emit("undo")
         self._refresh_info()
         self.process()
