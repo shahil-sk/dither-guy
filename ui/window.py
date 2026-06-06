@@ -75,10 +75,12 @@ class DitherGuy(QMainWindow, WindowHandlers, WindowToolbar):
                 break
 
     def _load_icon(self) -> None:
+        import sys, os
+        base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         for name in ("app_icon.png", "app_icon.ico"):
-            p = Path(name)
-            if p.exists():
-                self.setWindowIcon(QIcon(str(p)))
+            p = os.path.join(base_path, name)
+            if os.path.exists(p):
+                self.setWindowIcon(QIcon(p))
                 return
 
     def _build_ui(self) -> None:
