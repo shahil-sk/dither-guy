@@ -84,6 +84,7 @@ jobs:
           $name = "DitherGuy"
           if ('${{ matrix.gpu }}' -eq 'cuda') {
               $name = "DitherGuy-CUDA"
+              $excludesStr += " --collect-all=cupy --hidden-import=cupy"
           }
           $args = @(
             '--clean', '--noconfirm',
@@ -139,6 +140,7 @@ jobs:
               EXCLUDES="$EXCLUDES --exclude-module=cupy --exclude-module=cupy_cuda11x --exclude-module=cupy_cuda12x"
           else
               NAME="DitherGuy-CUDA"
+              EXCLUDES="$EXCLUDES --collect-all=cupy --hidden-import=cupy"
           fi
           pyinstaller --clean --noconfirm \
             --name="$NAME" \
