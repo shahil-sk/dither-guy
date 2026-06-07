@@ -56,7 +56,15 @@ class WindowToolbar:
         self.a_force_orig = QAction("Force Original Video", self)
         self.a_force_orig.setCheckable(True)
         self.a_force_orig.setChecked(False)
-        self.a_force_orig.toggled.connect(lambda checked: setattr(self.video_tab, 'force_original', checked))
+
+        def _on_force_orig_toggled(checked: bool):
+            self.video_tab.force_original = checked
+            if getattr(self.video_tab, 'video_path', None):
+                from PySide6.QtWidgets import QMessageBox
+                if QMessageBox.question(self, "Reload Video", "Reload the video now to apply this change?") == QMessageBox.StandardButton.Yes:
+                    self.video_tab._load_video(self.video_tab.video_path)
+        
+        self.a_force_orig.toggled.connect(_on_force_orig_toggled)
         self.a_force_orig.setStatusTip("Always load full resolution video instead of generating a 720p proxy")
         view_menu.addAction(self.a_force_orig)
 
