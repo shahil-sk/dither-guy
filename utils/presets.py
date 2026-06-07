@@ -58,7 +58,7 @@ class DownloadPresetsWorker(QThread):
     finished = Signal(list)
     error = Signal(str)
 
-    def __init__(self, repo: str = "shahil-sk/dither-guy", branch: str = "main"):
+    def __init__(self, repo: str = "shahil-sk/dither-guy", branch: str = "master"):
         super().__init__()
         self.repo = repo
         self.branch = branch
