@@ -1186,7 +1186,7 @@ class VideoTab(QWidget):
             self.orig_w = orig_w
             
         proxy_w = self.video_cap.get(cv2.CAP_PROP_FRAME_WIDTH) if self.video_cap else orig_w
-        scale = orig_w / max(1.0, float(proxy_w))
+        scale = (orig_w / max(1.0, float(proxy_w))) + 0.5
         
         if scale > 1.05:
             p["pixel_size"] = max(1, round(p["pixel_size"] * scale))
