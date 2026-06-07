@@ -588,6 +588,7 @@ class VideoTab(QWidget):
         self._fps          = 25.0
         self._total_frames = 0
         self._scrubbing    = False
+        self._orphaned_workers = []
         self._frame_worker: Optional[FrameDitherWorker] = None
         self._proxy_worker: Optional[ProxyGeneratorWorker] = None
         self._proxy_dlg: Optional[QProgressDialog] = None
@@ -1266,6 +1267,11 @@ class VideoTab(QWidget):
         QMessageBox.information(self, "Done", "Video exported.")
         if self.video_cap:
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            if hasattr(self, 'frame_slider'):
+                self.frame_slider.blockSignals(True)
+                self.frame_slider.setValue(0)
+                self.frame_slider.blockSignals(False)
+            self._seek_to_frame(0)
 
     def zoom_in(self)  -> None: self.canvas.zoom_in()
     def zoom_out(self) -> None: self.canvas.zoom_out()
