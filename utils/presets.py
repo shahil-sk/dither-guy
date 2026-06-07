@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import urllib.request
 import urllib.error
+import ssl
 from pathlib import Path
 from typing import Optional
 
@@ -64,11 +65,15 @@ class DownloadPresetsWorker(QThread):
         self.branch = branch
 
     def run(self):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
         api_url = f"https://api.github.com/repos/{self.repo}/contents/presets?ref={self.branch}"
         try:
             self.progress.emit("Fetching preset list from GitHub...")
             req = urllib.request.Request(api_url, headers={'User-Agent': 'DitherGuy-App'})
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as response:
                 data = json.loads(response.read().decode())
             
             if not isinstance(data, list):
@@ -92,7 +97,7 @@ class DownloadPresetsWorker(QThread):
                     
                 self.progress.emit(f"Downloading {name}... ({i+1}/{len(files_to_download)})")
                 freq = urllib.request.Request(file_url, headers={'User-Agent': 'DitherGuy-App'})
-                with urllib.request.urlopen(freq, timeout=10) as fres:
+                with urllib.request.urlopen(freq, timeout=10, context=ctx) as fres:
                     content = fres.read().decode()
                     save_path = PRESETS_DIR / name
                     with open(save_path, "w") as f:
