@@ -818,9 +818,6 @@ def apply_dither(
     is_bw    = (palette == PALETTES["B&W"])
     if is_video:
         video_scale = max(img.width, img.height) / 720.0
-        # Restore optical compensation for high-res images to match softened proxy preview
-        if video_scale > 1.05:
-            video_scale += 0.5
         effective_pixel = max(1, round(pixel_size * video_scale))
         blur *= video_scale
         sharpen *= video_scale
