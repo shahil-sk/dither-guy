@@ -800,6 +800,7 @@ def apply_dither(
     pre_smooth:   int   = 0,
     post_denoise: int   = 0,
     post_smooth:  int   = 0,
+    is_video: bool = False,
 ) -> Image.Image:
     # --- pre-dither adjustments ---
     img = adjust(img, brightness, contrast, blur, sharpen)
@@ -815,7 +816,17 @@ def apply_dither(
     palette  = custom_palette if (custom_palette and len(custom_palette) >= 2) \
                else PALETTES.get(palette_name, PALETTES["B&W"])
     is_bw    = (palette == PALETTES["B&W"])
-    effective_pixel = max(1, pixel_size * (2 if preview else 1))
+    
+    if is_video:
+        video_scale = max(img.width, img.height) / 720.0
+        effective_pixel = max(1, round(pixel_size * video_scale))
+        blur *= video_scale
+        sharpen *= video_scale
+        glow_radius = round(glow_radius * video_scale)
+        pre_smooth *= video_scale
+        post_smooth *= video_scale
+    else:
+        effective_pixel = max(1, pixel_size * (2 if preview else 1))
 
     use_gpu = (
         GPU_BACKEND == "cuda" and

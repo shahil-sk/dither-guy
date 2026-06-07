@@ -126,24 +126,26 @@ class DitherWorker(QThread):
 
 class FrameDitherWorker(QThread):
     result_ready = Signal(object)
-
-    def __init__(self, img: Image.Image, params: dict):
+    
+    def __init__(self, img: Image.Image, params: dict, preview: bool = True, is_video: bool = False):
         super().__init__()
-        self._img  = img
-        self._p    = params
+        self._img = img
+        self._p = params
+        self._preview = preview
+        self._is_video = is_video
         self._stop = False
         self._mutex = QMutex()
 
     def run(self) -> None:
         self.setPriority(QThread.Priority.LowPriority)
+        p = self._p
         try:
-            p = self._p
             result = apply_dither(
                 self._img,
                 p["pixel_size"], p["threshold"], p["color"], p["method"],
                 p["brightness"], p["contrast"], p["blur"], p["sharpen"],
                 p.get("glow_radius", 0), p.get("glow_intensity", 0),
-                preview=True,
+                preview=self._preview,
                 palette_name=p.get("palette_name", "B&W"),
                 custom_palette=p.get("custom_palette"),
                 saturation=p.get("saturation", 1.0),
@@ -152,6 +154,7 @@ class FrameDitherWorker(QThread):
                 pre_smooth=p.get("pre_smooth", 0),
                 post_denoise=p.get("post_denoise", 0),
                 post_smooth=p.get("post_smooth", 0),
+                is_video=self._is_video
             )
             self._mutex.lock()
             ok = not self._stop
@@ -174,7 +177,8 @@ def _process_frame_worker(args):
                        palette_name=pal, custom_palette=cpal,
                        saturation=sa, hue_rotate=hu,
                        pre_denoise=prd, pre_smooth=prs,
-                       post_denoise=pod, post_smooth=pos)
+                       post_denoise=pod, post_smooth=pos,
+                       is_video=True)
     return out
 
 
