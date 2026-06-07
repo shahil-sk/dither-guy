@@ -731,11 +731,13 @@ class VideoTab(QWidget):
             btn_layout.addWidget(b)
             return b
 
-        self.rewind_btn = _tbtn("⏮", self._rewind, "Rewind to start  (Home)")
+        self.jump_start_btn = _tbtn("⏮", self._rewind, "Jump to start  (Home)")
+        self.step_b_btn = _tbtn("⏴", self._step_backward, "Step backward  (Left Arrow)")
         self.play_btn   = _tbtn("▶", self.toggle_play, "Play / Pause  (Space)", "accent")
         self.play_btn.setFixedWidth(64)
-        self.stop_btn   = _tbtn("■", self.stop, "Stop & rewind  (S)")
-        self.step_f_btn = _tbtn("⏭", self._end, "Jump to end  (End)")
+        self.stop_btn   = _tbtn("■", self.stop, "Stop  (S)")
+        self.step_f_btn = _tbtn("⏵", self._step_forward, "Step forward  (Right Arrow)")
+        self.jump_end_btn = _tbtn("⏭", self._end, "Jump to end  (End)")
 
         btn_layout.addSpacing(12)
 
@@ -808,8 +810,8 @@ class VideoTab(QWidget):
         self._set_controls_enabled(False)
 
     def _set_controls_enabled(self, enabled: bool) -> None:
-        for w in (self.rewind_btn, self.play_btn, self.stop_btn,
-                  self.step_f_btn, self.loop_btn, self.seek_bar):
+        for w in (self.jump_start_btn, self.step_b_btn, self.play_btn, self.stop_btn, self.step_f_btn, self.jump_end_btn,
+                  self.loop_btn, self.audio_cb, self.export_btn, self.seek_bar):
             w.setEnabled(enabled)
 
     def open_file(self) -> None:
@@ -975,6 +977,18 @@ class VideoTab(QWidget):
         was_playing = self.is_playing
         if was_playing: self._pause()
         self._seek_to_frame(max(0, self._total_frames - 1))
+
+    def _step_backward(self) -> None:
+        if self.is_playing: self._pause()
+        if not self.video_cap or not self.video_cap.isOpened(): return
+        current_frame = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
+        self._seek_to_frame(max(0, current_frame - 1))
+
+    def _step_forward(self) -> None:
+        if self.is_playing: self._pause()
+        if not self.video_cap or not self.video_cap.isOpened(): return
+        current_frame = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
+        self._seek_to_frame(min(self._total_frames - 1, current_frame + 1))
 
     def _on_loop_toggled(self, checked: bool) -> None:
         self.loop = checked
