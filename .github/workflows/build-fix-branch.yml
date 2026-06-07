@@ -26,8 +26,6 @@ env:
     --exclude-module=PySide6.QtDesigner
     --exclude-module=PySide6.QtHelp
     --exclude-module=PySide6.QtLocation
-    --exclude-module=PySide6.QtMultimedia
-    --exclude-module=PySide6.QtMultimediaWidgets
     --exclude-module=PySide6.QtNetwork
     --exclude-module=PySide6.QtNfc
     --exclude-module=PySide6.QtPdf
