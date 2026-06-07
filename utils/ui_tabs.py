@@ -1244,6 +1244,7 @@ class VideoTab(QWidget):
             worker.deleteLater()
             self.export_bar.setVisible(False)
             self._reset_export_btn()
+            self._set_controls_enabled(True)
             self.status_message.emit("export cancelled")
 
     def _reset_export_btn(self) -> None:
@@ -1277,6 +1278,7 @@ class VideoTab(QWidget):
         
         self.export_bar.setVisible(False)
         self._reset_export_btn()
+        self._set_controls_enabled(True)
         self.status_message.emit("export complete")
         QMessageBox.information(self, "Done", "Video exported.")
         if self.video_cap:
