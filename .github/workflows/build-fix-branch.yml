@@ -49,7 +49,6 @@ env:
     --exclude-module=PySide6.QtWebEngineWidgets
     --exclude-module=PySide6.QtWebSockets
     --exclude-module=PySide6.QtXml
-    --exclude-module=numba.cuda
     --exclude-module=cv2.gapi
     --exclude-module=cv2.cuda
     --exclude-module=tkinter
@@ -103,7 +102,9 @@ jobs:
             '--hidden-import=utils.presets', '--hidden-import=utils.batch', '--hidden-import=utils.theme',
             '--hidden-import=utils.workers', '--hidden-import=utils.ui_widgets', '--hidden-import=utils.ui_control_panel',
             '--hidden-import=utils.ui_tabs', '--hidden-import=utils.ui_dialogs',
-            '--hidden-import=ui', '--hidden-import=ui.window', '--hidden-import=ui.toolbar', '--hidden-import=ui.handlers'
+            '--hidden-import=ui', '--hidden-import=ui.window', '--hidden-import=ui.toolbar', '--hidden-import=ui.handlers',
+            '--collect-all=PySide6.QtMultimedia', '--hidden-import=PySide6.QtMultimedia',
+            '--collect-all=numba', '--hidden-import=numba.cuda', '--hidden-import=numba._devicearray'
           ) + $excludes + @('main.py')
           & pyinstaller @args
       - uses: actions/upload-artifact@v4
@@ -155,6 +156,8 @@ jobs:
             --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel \
             --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs \
             --hidden-import=ui --hidden-import=ui.window --hidden-import=ui.toolbar --hidden-import=ui.handlers \
+            --collect-all=PySide6.QtMultimedia --hidden-import=PySide6.QtMultimedia \
+            --collect-all=numba --hidden-import=numba.cuda --hidden-import=numba._devicearray \
             $EXCLUDES main.py
       - name: Make executable
         run: chmod +x dist/DitherGuy*
@@ -193,6 +196,8 @@ jobs:
             --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel \
             --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs \
             --hidden-import=ui --hidden-import=ui.window --hidden-import=ui.toolbar --hidden-import=ui.handlers \
+            --collect-all=PySide6.QtMultimedia --hidden-import=PySide6.QtMultimedia \
+            --collect-all=numba --hidden-import=numba.cuda --hidden-import=numba._devicearray \
             $EXCLUDES main.py
       - uses: actions/upload-artifact@v4
         with:
