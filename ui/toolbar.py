@@ -97,6 +97,10 @@ class WindowToolbar:
         a_del = QAction("Manage Presets", self)
         a_del.triggered.connect(self._manage_presets)
         self.presets_menu.addAction(a_del)
+
+        a_dl = QAction("Download Presets from GitHub", self)
+        a_dl.triggered.connect(self._download_presets)
+        self.presets_menu.addAction(a_dl)
         
         from utils.presets import list_presets
         presets = list_presets()

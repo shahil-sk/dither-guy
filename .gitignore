@@ -43,7 +43,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
-presets/
 .cursorrules
 .gitignore
 .mcp.json

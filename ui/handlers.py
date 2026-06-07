@@ -121,6 +121,42 @@ class WindowHandlers:
             else:
                 QMessageBox.warning(self, "Preset Error", f"Could not delete '{name}'.")
 
+    def _download_presets(self: 'DitherGuy') -> None:
+        from utils.presets import DownloadPresetsWorker
+        from PySide6.QtWidgets import QProgressDialog
+        
+        self.dl_dialog = QProgressDialog("Connecting to GitHub...", "Cancel", 0, 0, self)
+        self.dl_dialog.setWindowTitle("Download Presets")
+        self.dl_dialog.setWindowModality(Qt.WindowModal)
+        self.dl_dialog.show()
+
+        self.dl_worker = DownloadPresetsWorker()
+        
+        def on_progress(msg: str):
+            self.dl_dialog.setLabelText(msg)
+            
+        def on_error(msg: str):
+            self.dl_dialog.close()
+            QMessageBox.critical(self, "Download Failed", msg)
+            self.dl_worker.deleteLater()
+            
+        def on_finished(downloaded: list[str]):
+            self.dl_dialog.close()
+            if downloaded:
+                self._show_status(f"Downloaded {len(downloaded)} presets.")
+                self._build_presets_menu()
+                QMessageBox.information(self, "Success", f"Successfully downloaded {len(downloaded)} presets:\n" + "\n".join(downloaded))
+            else:
+                QMessageBox.information(self, "No Presets", "No preset files were downloaded.")
+            self.dl_worker.deleteLater()
+
+        self.dl_worker.progress.connect(on_progress)
+        self.dl_worker.error.connect(on_error)
+        self.dl_worker.finished.connect(on_finished)
+        self.dl_dialog.canceled.connect(self.dl_worker.terminate)
+        
+        self.dl_worker.start()
+
     def _open(self: 'DitherGuy') -> None:
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Media", self._active().last_dir,
