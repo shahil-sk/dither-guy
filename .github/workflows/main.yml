@@ -101,7 +101,8 @@ jobs:
             '--hidden-import=utils.matrices', '--hidden-import=utils.dither_kernels', '--hidden-import=utils.gpu_kernels',
             '--hidden-import=utils.presets', '--hidden-import=utils.batch', '--hidden-import=utils.theme',
             '--hidden-import=utils.workers', '--hidden-import=utils.ui_widgets', '--hidden-import=utils.ui_control_panel',
-            '--hidden-import=utils.ui_tabs', '--hidden-import=utils.ui_dialogs'
+            '--hidden-import=utils.ui_tabs', '--hidden-import=utils.ui_dialogs',
+            '--hidden-import=ui', '--hidden-import=ui.window', '--hidden-import=ui.toolbar', '--hidden-import=ui.handlers'
           ) + $excludes + @('main.py')
           & pyinstaller @args
       - uses: actions/upload-artifact@v4
@@ -141,7 +142,19 @@ jobs:
           else
               NAME="DitherGuy-CUDA"
           fi
-          pyinstaller --clean --noconfirm             --name="$NAME"             --onefile --windowed --strip             --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets             --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=PIL.ImageFilter --hidden-import=PIL.ImageEnhance             --hidden-import=numpy --hidden-import=cv2 --hidden-import=shiboken6             --hidden-import=utils --hidden-import=utils.constants --hidden-import=utils.palettes             --hidden-import=utils.matrices --hidden-import=utils.dither_kernels --hidden-import=utils.gpu_kernels             --hidden-import=utils.presets --hidden-import=utils.batch --hidden-import=utils.theme             --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel             --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs             $EXCLUDES main.py
+          pyinstaller --clean --noconfirm \
+            --name="$NAME" \
+            --onefile --windowed --strip \
+            --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets \
+            --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=PIL.ImageFilter --hidden-import=PIL.ImageEnhance \
+            --hidden-import=numpy --hidden-import=cv2 --hidden-import=shiboken6 \
+            --hidden-import=utils --hidden-import=utils.constants --hidden-import=utils.palettes \
+            --hidden-import=utils.matrices --hidden-import=utils.dither_kernels --hidden-import=utils.gpu_kernels \
+            --hidden-import=utils.presets --hidden-import=utils.batch --hidden-import=utils.theme \
+            --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel \
+            --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs \
+            --hidden-import=ui --hidden-import=ui.window --hidden-import=ui.toolbar --hidden-import=ui.handlers \
+            $EXCLUDES main.py
       - name: Make executable
         run: chmod +x dist/DitherGuy*
       - uses: actions/upload-artifact@v4
@@ -167,7 +180,19 @@ jobs:
       - name: Build
         run: |
           EXCLUDES="${{ env._EXCLUDES }} --exclude-module=cupy --exclude-module=cupy_cuda11x --exclude-module=cupy_cuda12x"
-          pyinstaller --clean --noconfirm             --name="DitherGuy"             --onefile --windowed --strip             --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets             --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=PIL.ImageFilter --hidden-import=PIL.ImageEnhance             --hidden-import=numpy --hidden-import=cv2 --hidden-import=shiboken6             --hidden-import=utils --hidden-import=utils.constants --hidden-import=utils.palettes             --hidden-import=utils.matrices --hidden-import=utils.dither_kernels --hidden-import=utils.gpu_kernels             --hidden-import=utils.presets --hidden-import=utils.batch --hidden-import=utils.theme             --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel             --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs             $EXCLUDES main.py
+          pyinstaller --clean --noconfirm \
+            --name="DitherGuy" \
+            --onefile --windowed --strip \
+            --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets \
+            --hidden-import=PIL --hidden-import=PIL.Image --hidden-import=PIL.ImageFilter --hidden-import=PIL.ImageEnhance \
+            --hidden-import=numpy --hidden-import=cv2 --hidden-import=shiboken6 \
+            --hidden-import=utils --hidden-import=utils.constants --hidden-import=utils.palettes \
+            --hidden-import=utils.matrices --hidden-import=utils.dither_kernels --hidden-import=utils.gpu_kernels \
+            --hidden-import=utils.presets --hidden-import=utils.batch --hidden-import=utils.theme \
+            --hidden-import=utils.workers --hidden-import=utils.ui_widgets --hidden-import=utils.ui_control_panel \
+            --hidden-import=utils.ui_tabs --hidden-import=utils.ui_dialogs \
+            --hidden-import=ui --hidden-import=ui.window --hidden-import=ui.toolbar --hidden-import=ui.handlers \
+            $EXCLUDES main.py
       - uses: actions/upload-artifact@v4
         with:
           name: DitherGuy-macOS
