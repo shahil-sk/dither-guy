@@ -5,6 +5,7 @@ on:
     branches:
       - 'fix/**'
       - 'bugfix/**'
+      - 'perf**'
   workflow_dispatch:
     inputs:
       branch:
