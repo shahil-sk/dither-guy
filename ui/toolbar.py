@@ -28,7 +28,7 @@ class WindowToolbar:
             return a
             
         a_open  = create_action("Open", "Ctrl+O", self._open, "Open image")
-        a_save  = create_action("Save As", "Ctrl+S", self._save, "Save output")
+        a_save  = create_action("Save", "Ctrl+S", self._save, "Save output")
         a_batch = create_action("Batch Process", "Ctrl+B", self._batch, "Batch process folder")
         file_menu.addAction(a_open)
         file_menu.addAction(a_save)
@@ -71,7 +71,7 @@ class WindowToolbar:
         a_shortcuts = create_action("Keyboard Shortcuts", "Ctrl+?", self._show_shortcuts, "View all keyboard shortcuts")
         help_menu.addAction(a_shortcuts)
 
-        a_about = create_action("About Dither Guy...", "", self._show_about, "About this application")
+        a_about = create_action("About This Project", "", self._show_about, "About this application")
         help_menu.addAction(a_about)
 
         self._build_presets_menu()
@@ -90,11 +90,11 @@ class WindowToolbar:
     def _build_presets_menu(self: 'DitherGuy') -> None:
         self.presets_menu.clear()
         
-        a_save = QAction("Save Preset...", self)
+        a_save = QAction("Save Preset", self)
         a_save.triggered.connect(self._save_preset)
         self.presets_menu.addAction(a_save)
         
-        a_del = QAction("Manage Presets...", self)
+        a_del = QAction("Manage Presets", self)
         a_del.triggered.connect(self._manage_presets)
         self.presets_menu.addAction(a_del)
         
