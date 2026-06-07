@@ -52,6 +52,14 @@ class WindowToolbar:
         view_menu.addAction(a_fit)
         view_menu.addAction(a_1to1)
 
+        view_menu.addSeparator()
+        self.a_force_orig = QAction("Force Original Video", self)
+        self.a_force_orig.setCheckable(True)
+        self.a_force_orig.setChecked(False)
+        self.a_force_orig.toggled.connect(lambda checked: setattr(self.video_tab, 'force_original', checked))
+        self.a_force_orig.setStatusTip("Always load full resolution video instead of generating a 720p proxy")
+        view_menu.addAction(self.a_force_orig)
+
         a_shortcuts = create_action("Keyboard Shortcuts", "Ctrl+?", self._show_shortcuts, "View all keyboard shortcuts")
         help_menu.addAction(a_shortcuts)
 

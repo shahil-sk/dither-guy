@@ -857,7 +857,7 @@ class VideoTab(QWidget):
         h        = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
         max_dim = max(w, h)
-        if max_dim > 720:
+        if max_dim > 720 and not getattr(self, 'force_original', False):
             scale = 720.0 / max_dim
             tw, th = int(w * scale), int(h * scale)
             tw -= tw % 2
@@ -1241,9 +1241,12 @@ class VideoTab(QWidget):
 
     def _cancel_export(self) -> None:
         if self.export_worker is not None and self.export_worker.isRunning():
-            self.export_worker.stop()
-            self.export_worker.wait()
+            worker = self.export_worker
             self.export_worker = None
+            worker.stop()
+            worker.wait()
+            self._orphaned_workers.append(worker)
+            worker.deleteLater()
             self.export_bar.setVisible(False)
             self._reset_export_btn()
             self.status_message.emit("export cancelled")
@@ -1272,7 +1275,11 @@ class VideoTab(QWidget):
     def _on_export_done(self) -> None:
         if self.export_worker is None:
             return
+        worker = self.export_worker
         self.export_worker = None
+        self._orphaned_workers.append(worker)
+        worker.deleteLater()
+        
         self.export_bar.setVisible(False)
         self._reset_export_btn()
         self.status_message.emit("export complete")
