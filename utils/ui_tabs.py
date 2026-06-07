@@ -1177,14 +1177,22 @@ class VideoTab(QWidget):
         p = self.get_params()
         
         # Scale spatial parameters up if the UI was previewing on a low-res proxy
-        proxy_w = self.video_cap.get(cv2.CAP_PROP_FRAME_WIDTH) if self.video_cap else getattr(self, 'orig_w', 1.0)
-        scale = getattr(self, 'orig_w', proxy_w) / max(1.0, float(proxy_w))
+        # robustly get original width in case user hasn't reloaded the video
+        orig_w = getattr(self, 'orig_w', None)
+        if orig_w is None:
+            tmp_cap = cv2.VideoCapture(self.video_path)
+            orig_w = tmp_cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            tmp_cap.release()
+            self.orig_w = orig_w
+            
+        proxy_w = self.video_cap.get(cv2.CAP_PROP_FRAME_WIDTH) if self.video_cap else orig_w
+        scale = orig_w / max(1.0, float(proxy_w))
         
         if scale > 1.05:
-            p["pixel_size"] = max(1, int(p["pixel_size"] * scale))
+            p["pixel_size"] = max(1, round(p["pixel_size"] * scale))
             p["blur"] = p["blur"] * scale
             p["sharpen"] = p["sharpen"] * scale
-            p["glow_radius"] = int(p.get("glow_radius", 0) * scale)
+            p["glow_radius"] = round(p.get("glow_radius", 0) * scale)
             if p.get("pre_smooth", 0) > 0:
                 p["pre_smooth"] = p["pre_smooth"] * scale
             if p.get("post_smooth", 0) > 0:
