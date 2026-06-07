@@ -139,49 +139,49 @@ class ControlPanel(QWidget):
 
         dg = self._group("Dither")
         _, self._pix_val,  self.pixel_sl  = make_slider(
-            dg.layout(), "pixel size", 1, 20, 4,
+            dg.layout(), "Pixel Size", 1, 20, 4,
             tooltip="Mosaic block size in pixels",
         )
         _, self._thr_val,  self.thresh_sl = make_slider(
-            dg.layout(), "threshold",  0, 255, 128,
+            dg.layout(), "Threshold",  0, 255, 128,
             tooltip="Binarisation threshold (0\u2013255)",
         )
         layout.addWidget(dg)
 
         adj = self._group("Adjustments")
         _, self._br_val, self.bright_sl = make_slider(
-            adj.layout(), "brightness", 0, 200, 100, "{v}%",
+            adj.layout(), "Brightness", 0, 200, 100, "{v}%",
             tooltip="Brightness multiplier (100 = no change)",
         )
         _, self._co_val, self.contr_sl  = make_slider(
-            adj.layout(), "contrast",   0, 200, 100, "{v}%",
+            adj.layout(), "Contrast",   0, 200, 100, "{v}%",
             tooltip="Contrast multiplier (100 = no change)",
         )
         _, self._sa_val, self.sat_sl = make_slider(
-            adj.layout(), "saturation", 0, 200, 100, "{v}%",
+            adj.layout(), "Saturation", 0, 200, 100, "{v}%",
             tooltip="Colour saturation multiplier (100 = no change)",
         )
         _, self._hu_val, self.hue_sl = make_slider(
-            adj.layout(), "hue", 0, 359, 0, "{v}\u00b0",
+            adj.layout(), "Hue", 0, 359, 0, "{v}\u00b0",
             tooltip="Hue rotation in degrees",
         )
         _, self._bl_val, self.blur_sl   = make_slider(
-            adj.layout(), "blur",       0, 10,  0,
+            adj.layout(), "Blur",       0, 10,  0,
             tooltip="Gaussian blur radius before dithering",
         )
         _, self._sh_val, self.sharp_sl  = make_slider(
-            adj.layout(), "sharpen",    0, 5,   0,
+            adj.layout(), "Sharpen",    0, 5,   0,
             tooltip="Unsharp-mask strength",
         )
         layout.addWidget(adj)
 
         pre = self._group("Pre-dither Filters")
         _, self._prd_val, self.pre_denoise_sl = make_slider(
-            pre.layout(), "denoise", 0, 10, 0,
+            pre.layout(), "Denoise", 0, 10, 0,
             tooltip="Median denoise strength before dithering",
         )
         _, self._prs_val, self.pre_smooth_sl = make_slider(
-            pre.layout(), "smooth", 0, 8, 0,
+            pre.layout(), "Smooth", 0, 8, 0,
             tooltip="Smooth filter passes before dithering",
         )
         layout.addWidget(pre)
@@ -190,13 +190,13 @@ class ControlPanel(QWidget):
         reset_layout.setContentsMargins(0, 0, 0, 0)
         reset_layout.setSpacing(4)
         
-        reset_btn = QPushButton("\u21ba  Reset Adjustments")
+        reset_btn = QPushButton("↺  Reset Adjustments")
         reset_btn.clicked.connect(self._reset)
         reset_btn.setMinimumHeight(28)
         reset_btn.setToolTip("Reset image adjustments and filters to defaults")
         reset_layout.addWidget(reset_btn)
         
-        reset_all_btn = QPushButton("\u21ba  Reset All")
+        reset_all_btn = QPushButton("↺  Reset All")
         reset_all_btn.clicked.connect(self.reset_all)
         reset_all_btn.setMinimumHeight(28)
         reset_all_btn.setToolTip("Fully reset all settings to defaults")
@@ -207,22 +207,22 @@ class ControlPanel(QWidget):
 
         gg = self._group("Glow")
         _, self._gr_val, self.glow_r_sl = make_slider(
-            gg.layout(), "radius",    0, 40,  0,
+            gg.layout(), "Radius",    0, 40,  0,
             tooltip="Bloom glow blur radius",
         )
         _, self._gi_val, self.glow_i_sl = make_slider(
-            gg.layout(), "intensity", 0, 100, 0, "{v}%",
+            gg.layout(), "Intensity", 0, 100, 0, "{v}%",
             tooltip="Bloom glow blend intensity",
         )
         layout.addWidget(gg)
 
         post = self._group("Post-dither Filters")
         _, self._pod_val, self.post_denoise_sl = make_slider(
-            post.layout(), "denoise", 0, 10, 0,
+            post.layout(), "Denoise", 0, 10, 0,
             tooltip="Median denoise strength after dithering",
         )
         _, self._pos_val, self.post_smooth_sl = make_slider(
-            post.layout(), "smooth", 0, 8, 0,
+            post.layout(), "Smooth", 0, 8, 0,
             tooltip="Smooth filter passes after dithering",
         )
         layout.addWidget(post)
@@ -234,7 +234,7 @@ class ControlPanel(QWidget):
         self.swatch.setAlignment(Qt.AlignCenter)
         self._refresh_swatch()
         cg.layout().addWidget(self.swatch)
-        pick_btn = QPushButton("Pick Colour")
+        pick_btn = QPushButton("🖌  Pick Colour")
         pick_btn.setMinimumHeight(28)
         pick_btn.setToolTip("Choose the foreground dither colour")
         pick_btn.clicked.connect(self._pick_color)
@@ -258,8 +258,8 @@ class ControlPanel(QWidget):
         self._refresh_palette_swatches()
 
         custom_row = QHBoxLayout()
-        self.custom_pal_btn   = QPushButton("+ Add")
-        self.clear_custom_btn = QPushButton("\u2715 Clear")
+        self.custom_pal_btn   = QPushButton("＋  Add")
+        self.clear_custom_btn = QPushButton("✕  Clear")
         for b in (self.custom_pal_btn, self.clear_custom_btn):
             b.setMinimumHeight(26)
         self.custom_pal_btn.setToolTip("Add a colour to the custom palette")

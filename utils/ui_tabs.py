@@ -109,12 +109,12 @@ class ImageTab(QWidget):
             bl1.addWidget(b)
             return b
 
-        _btn("◑ Invert",  self.invert)
-        _btn("↺ L",       self.rotate_left,  tip="Rotate 90° CCW")
-        _btn("↻ R",       self.rotate_right, tip="Rotate 90° CW")
-        _btn("↔ H",       self.flip_h,       tip="Flip horizontal")
-        _btn("↕ V",       self.flip_v,       tip="Flip vertical")
-        _btn("✂ Crop",    self.crop)
+        _btn("◑  Invert",  self.invert)
+        _btn("↺  Left",       self.rotate_left,  tip="Rotate 90° CCW")
+        _btn("↻  Right",       self.rotate_right, tip="Rotate 90° CW")
+        _btn("↔  Flip H",       self.flip_h,       tip="Flip horizontal")
+        _btn("↕  Flip V",       self.flip_v,       tip="Flip vertical")
+        _btn("✂  Crop",    self.crop)
 
         bl1.addWidget(vsep())
 
@@ -130,7 +130,7 @@ class ImageTab(QWidget):
         self.auto_cb.stateChanged.connect(self._toggle_auto)
         bl1.addWidget(self.auto_cb)
 
-        self.apply_btn = QPushButton("▶ Apply")
+        self.apply_btn = QPushButton("▶  Apply")
         self.apply_btn.setObjectName("accent")
         self.apply_btn.clicked.connect(self.process)
         self.apply_btn.setVisible(False)
@@ -778,7 +778,7 @@ class VideoTab(QWidget):
 
         btn_layout.addSpacing(12)
 
-        self.export_btn = QPushButton("⥅ Export")
+        self.export_btn = QPushButton("⥅  Export")
         self.export_btn.setObjectName("accent")
         self.export_btn.setMinimumHeight(28)
         self.export_btn.setCursor(Qt.PointingHandCursor)
@@ -1220,7 +1220,7 @@ class VideoTab(QWidget):
         self.export_bar.setValue(0)
         self.status_message.emit("exporting...")
         
-        self.export_btn.setText("⨉ Cancel")
+        self.export_btn.setText("⨉  Cancel")
         self.export_btn.setObjectName("")
         self.export_btn.setStyleSheet(f"background: {_RE}; color: #FFF; font-weight: bold;")
         
@@ -1248,7 +1248,7 @@ class VideoTab(QWidget):
             self.status_message.emit("export cancelled")
 
     def _reset_export_btn(self) -> None:
-        self.export_btn.setText("⥅ Export")
+        self.export_btn.setText("⥅  Export")
         self.export_btn.setObjectName("accent")
         self.export_btn.setStyleSheet("")
 
